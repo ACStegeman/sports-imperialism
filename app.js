@@ -1171,7 +1171,16 @@ function drawPowers() {
 }
 
 // ---------- options ----------
+// Easter egg: click the developer's name in the footer.
+function wireLeo() {
+  const pop = $('leo-pop'), close = () => { pop.hidden = true; pop.classList.remove('show'); $('leo').focus(); };
+  $('leo').onclick = () => { pop.hidden = false; pop.classList.add('show'); $('leo-close').focus(); };
+  $('leo-close').onclick = close;
+  pop.onclick = e => { if (e.target === pop) close(); };
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.hidden) close(); });
+}
 function wireOptions() {
+  wireLeo();
   $('settings-btn').onclick = () => { const p = $('settings'), open = p.hidden; p.hidden = !open; $('settings-btn').setAttribute('aria-expanded', String(open)); };
   for (const k of ['sound', 'capitals', 'rebellions', 'powerups']) {
     const box = $(`opt-${k}`);

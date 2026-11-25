@@ -195,6 +195,14 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .zoom button:hover:not(:disabled) { background: var(--turf-3); }
 .zoom button:disabled { opacity: .35; cursor: default; }
 .zoom button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.credit { text-align: center; color: var(--chalk-dim); font-size: 13px; padding-block: 8px 4px; }
+.leo { appearance: none; background: none; border: 0; padding: 0; font: inherit; color: var(--chalk); cursor: pointer; }
+.leo:hover { color: var(--gold); }
+.leo:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 4px; }
+.leo-pop figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: min(420px, 100%); }
+.overlay.leo-pop img { padding: 0; background: none; width: 100%; height: auto; max-height: 72vh; object-fit: contain; border-radius: 14px; border: 3px solid var(--gold); box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.leo-pop figcaption { font: 800 24px var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--gold); }
+.leo-pop.show img { animation: pop .45s cubic-bezier(.2, 1.6, .4, 1) both; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--chalk-dim); }
 @media (prefers-reduced-motion: reduce) { .region { transition: none; } .region.target { animation: none; } }
 </style>
@@ -309,8 +317,17 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
       <button class="btn" id="replay-exit" hidden>Back to game</button>
     </div>
   </section>
+
+  <footer class="credit">Designed and developed by <button class="leo" id="leo" type="button">Leo Stegeman</button></footer>
 </div>
 <div class="overlay" id="overlay" hidden></div>
+<div class="overlay leo-pop" id="leo-pop" hidden>
+  <figure role="dialog" aria-label="Leo Stegeman">
+    <img src="leo.jpg" alt="Leo Stegeman in his number 10 Panthers jersey, smiling on the football field with his helmet in hand" width="750" height="1000">
+    <figcaption>The developer, #10</figcaption>
+    <button class="btn" id="leo-close" type="button">Back to the game</button>
+  </figure>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
@@ -2092,7 +2109,16 @@ function drawPowers() {
 }
 
 // ---------- options ----------
+// Easter egg: click the developer's name in the footer.
+function wireLeo() {
+  const pop = $('leo-pop'), close = () => { pop.hidden = true; pop.classList.remove('show'); $('leo').focus(); };
+  $('leo').onclick = () => { pop.hidden = false; pop.classList.add('show'); $('leo-close').focus(); };
+  $('leo-close').onclick = close;
+  pop.onclick = e => { if (e.target === pop) close(); };
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.hidden) close(); });
+}
 function wireOptions() {
+  wireLeo();
   $('settings-btn').onclick = () => { const p = $('settings'), open = p.hidden; p.hidden = !open; $('settings-btn').setAttribute('aria-expanded', String(open)); };
   for (const k of ['sound', 'capitals', 'rebellions', 'powerups']) {
     const box = $(`opt-${k}`);
