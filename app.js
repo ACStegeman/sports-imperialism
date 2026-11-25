@@ -95,7 +95,8 @@ function buildWorld(topo) {
     for (let y = Math.floor(y0); y <= y1; y += step) for (let x = Math.floor(x0); x <= x1; x += step) if (ctx.isPointInPath(p2, x, y)) pts.push([x, y]);
     out.push({ id: worldKey(f), state: worldKey(f), name: f.properties.name, team: null, d, clip: null, at: anchor(pts, path.centroid(f)), area: path.area(f), pts });
   }
-  return { regions: out, path, fc, topo, object: topo.objects.countries, keyOf: worldKey, segments: buildSegments(topo, topo.objects.countries, worldKey, proj, out, ctx) };
+  const [[bx0, by0], [bx1, by1]] = path.bounds(fc);
+  return { frame: { x: bx0 - 6, y: by0 - 6, w: bx1 - bx0 + 12, h: by1 - by0 + 12 }, regions: out, path, fc, topo, object: topo.objects.countries, keyOf: worldKey, segments: buildSegments(topo, topo.objects.countries, worldKey, proj, out, ctx) };
 }
 
 // Every piece of border, tagged with the region on each side, so lines can vanish inside one team's land.
@@ -177,7 +178,7 @@ function drawMap({ regions, path, topo, segments, object, keyOf }) {
     const p = el('path', { d: r.d, class: 'region', 'data-id': r.id }, gRegions);
     if (r.clip) p.setAttribute('clip-path', `url(#clip-${r.clip})`);
     el('title', {}, p);
-    p.addEventListener('click', () => onRegionClick(r.id));
+    p.addEventListener('click', () => { if (!dragged) onRegionClick(r.id); });
   }
   gBorders = el('path', { class: 'borders' }, svg);
   el('path', { d: path(topojson.mesh(topo, object, (a, b) => a === b && keyOf(a))), class: 'outline' }, svg);
@@ -302,6 +303,7 @@ async function spinWheel() {
   await animate(wheelRot, target, 3800 / SPEED(), setWheel);
   wheelRot = mod(target, 360);
   turn = { step: 'arrow', attacker: teams[idx].abbr };
+  follow(teamSpot(teams[idx].abbr));
   busy = false; render();
 }
 
@@ -861,6 +863,67 @@ function doReset() {
   clearAim(); save(); drawStrengths(); paint(); render(); drawReplay(); drawRecords();
 }
 
+// ---------- zoom and pan ----------
+let BASE = { x: 0, y: 0, w: W, h: H }, VIEW = { ...BASE }, dragged = false;
+function setView(v) {
+  const w = Math.max(BASE.w / 8, Math.min(BASE.w, v.w)), h = w * BASE.h / BASE.w;
+  const x = Math.max(BASE.x, Math.min(BASE.x + BASE.w - w, v.x)), y = Math.max(BASE.y, Math.min(BASE.y + BASE.h - h, v.y));
+  VIEW = { x, y, w, h };
+  $('map').setAttribute('viewBox', `${x.toFixed(1)} ${y.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}`);
+  const z = $('zoom-fit'); if (z) z.disabled = w >= BASE.w - 0.5;
+}
+function toMap(clientX, clientY) {
+  const r = $('map').getBoundingClientRect();
+  return [VIEW.x + (clientX - r.left) / r.width * VIEW.w, VIEW.y + (clientY - r.top) / r.height * VIEW.h];
+}
+function zoomAt(factor, cx, cy) {
+  const w = VIEW.w / factor, h = VIEW.h / factor;
+  setView({ x: cx - (cx - VIEW.x) * (w / VIEW.w), y: cy - (cy - VIEW.y) * (h / VIEW.h), w, h });
+}
+function animateView(target, ms = 450) {
+  const from = { ...VIEW };
+  return animate(0, 1, reduced ? 0 : ms, k => setView({ x: from.x + (target.x - from.x) * k, y: from.y + (target.y - from.y) * k, w: from.w + (target.w - from.w) * k, h: from.h + (target.h - from.h) * k }));
+}
+// When zoomed in, slide the view so the attacking team is in the middle.
+function follow([x, y]) {
+  if (VIEW.w >= BASE.w - 0.5) return;
+  animateView({ x: x - VIEW.w / 2, y: y - VIEW.h / 2, w: VIEW.w, h: VIEW.h });
+}
+function wireZoom() {
+  const svg = $('map'), ptrs = new Map();
+  let start = null, pinch = null;
+  $('zoom-in').onclick = () => zoomAt(1.6, VIEW.x + VIEW.w / 2, VIEW.y + VIEW.h / 2);
+  $('zoom-out').onclick = () => zoomAt(1 / 1.6, VIEW.x + VIEW.w / 2, VIEW.y + VIEW.h / 2);
+  $('zoom-fit').onclick = () => animateView({ ...BASE });
+  svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    const [cx, cy] = toMap(e.clientX, e.clientY);
+    zoomAt(Math.exp(-e.deltaY * 0.0022), cx, cy);
+  }, { passive: false });
+  svg.addEventListener('pointerdown', e => {
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (ptrs.size === 1) { start = { cx: e.clientX, cy: e.clientY, view: { ...VIEW } }; dragged = false; }
+    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), view: { ...VIEW }, mid: toMap((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) }; }
+  });
+  svg.addEventListener('pointermove', e => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (ptrs.size === 2 && pinch) {
+      const [a, b] = [...ptrs.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      VIEW = { ...pinch.view }; zoomAt(d / pinch.d, pinch.mid[0], pinch.mid[1]); dragged = true;
+    } else if (ptrs.size === 1 && start) {
+      const dx = e.clientX - start.cx, dy = e.clientY - start.cy;
+      if (!dragged && Math.hypot(dx, dy) < 5) return;
+      if (start.view.w >= BASE.w - 0.5) return; // nothing to pan at full view
+      dragged = true; svg.setPointerCapture(e.pointerId);
+      const r = svg.getBoundingClientRect();
+      setView({ ...start.view, x: start.view.x - dx / r.width * start.view.w, y: start.view.y - dy / r.height * start.view.h });
+    }
+  });
+  const end = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) { start = null; setTimeout(() => { dragged = false; }, 0); } };
+  svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
+}
+
 // ---------- power-ups ----------
 // Empty land that touches some team's territory: where new power-up tokens go first.
 function frontier(owners) {
@@ -1117,6 +1180,8 @@ async function loadMap(key) {
   REGIONS.forEach((r, i) => { for (const [x, y] of r.pts) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) { const gx = x + dx, gy = y + dy; if (gx < W && gy < H) LABEL[gy * W + gx] = i; } });
   ANCHOR_CACHE.clear();
   drawMap(built);
+  BASE = built.frame || { x: 0, y: 0, w: W, h: H };
+  setView({ ...BASE });
   drawAssign();
 }
 let mapArmed = null;
@@ -1142,7 +1207,7 @@ async function boot() {
   await loadMap(savedMap);
   state = load(); CAPITALS = state.home;
   $('loading').hidden = true;
-  drawStrengths(); wireOptions(); drawReplay(); drawRecords(); drawMapSwitch();
+  drawStrengths(); wireOptions(); wireZoom(); drawReplay(); drawRecords(); drawMapSwitch();
   for (const b of document.querySelectorAll('.seg:not(.mapseg) button')) b.onclick = () => { state.mode = b.dataset.mode; if (state.mode === 'pick') stopAuto(); save(); render(); };
   for (const b of document.querySelectorAll('.mapseg button')) b.onclick = () => {
     if (b.dataset.map === MAP) return;

@@ -36,11 +36,12 @@ h1 { font-family: var(--display); font-weight: 800; font-size: clamp(28px, 4vw, 
 h1 span { color: var(--gold); }
 .tally { font-family: var(--display); font-size: 18px; color: var(--chalk-dim); letter-spacing: .06em; text-transform: uppercase; font-variant-numeric: tabular-nums; }
 .field { min-width: 0; align-self: start; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); background: var(--turf-2); border-radius: 14px; padding: 8px; position: relative; }
-#map { width: 100%; height: auto; display: block; }
-.region { transition: fill .5s ease, stroke .5s ease; cursor: default; }
+#map { width: 100%; height: auto; display: block; touch-action: none; cursor: grab; }
+#map:active { cursor: grabbing; }
+.region { transition: fill .5s ease, stroke .5s ease; vector-effect: non-scaling-stroke; }
 .split-line { fill: none; stroke: var(--line); stroke-width: .6; stroke-dasharray: 3 2; pointer-events: none; }
-.borders { fill: none; stroke: var(--line); stroke-width: 1; stroke-linecap: round; pointer-events: none; }
-.outline { fill: none; stroke: var(--chalk); stroke-width: 1.2; pointer-events: none; }
+.borders { vector-effect: non-scaling-stroke; fill: none; stroke: var(--line); stroke-width: 1; stroke-linecap: round; pointer-events: none; }
+.outline { vector-effect: non-scaling-stroke; fill: none; stroke: var(--chalk); stroke-width: 1.2; pointer-events: none; }
 .assigning .region { cursor: crosshair; }
 .region.target { stroke: var(--gold); stroke-width: 3; animation: pulse 0.9s ease-in-out infinite alternate; }
 @keyframes pulse { from { stroke-opacity: 1 } to { stroke-opacity: .25 } }
@@ -172,6 +173,11 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
 .chips > div { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
 .chip { font: 600 11px var(--body); background: var(--gold); color: #1d1503; border-radius: 999px; padding: 2px 8px; }
+.zoom { position: absolute; top: 14px; right: 14px; display: flex; flex-direction: column; gap: 4px; z-index: 3; }
+.zoom button { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: rgba(16,32,27,.85); color: var(--chalk); font: 700 18px/1 var(--body); cursor: pointer; }
+.zoom button:hover:not(:disabled) { background: var(--turf-3); }
+.zoom button:disabled { opacity: .35; cursor: default; }
+.zoom button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--chalk-dim); }
 @media (prefers-reduced-motion: reduce) { .region { transition: none; } .region.target { animation: none; } }
 </style>
@@ -184,6 +190,11 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 
   <div class="field" id="field">
     <svg id="map" viewBox="0 0 975 610" role="img" aria-label="Map of the United States colored by NFL team territory"></svg>
+    <div class="zoom" role="group" aria-label="Zoom">
+      <button id="zoom-in" aria-label="Zoom in">+</button>
+      <button id="zoom-out" aria-label="Zoom out">−</button>
+      <button id="zoom-fit" aria-label="Show the whole map">⤢</button>
+    </div>
     <div class="loading" id="loading">Loading map…</div>
     <div class="upset" id="upset" hidden></div>
   </div>
