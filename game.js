@@ -160,3 +160,28 @@ export function simulateGame(winner, loser, rng = Math.random) {
   events.sort((a, b) => a.q - b.q || b.clock - a.clock);
   return { events, score };
 }
+
+// An upset: in weighted mode, the winner had less than a 35% chance.
+export function isUpset(winner, loser, strengths, mode) {
+  if (mode !== 'weighted') return false;
+  const w = strengths[winner], l = strengths[loser];
+  return w / (w + l) < 0.35;
+}
+
+// For the champion's victory lap: land not yet theirs, in rings spreading out from their territory.
+export function spreadOrder(owners, team, adjacency) {
+  const nb = {};
+  for (const [a, b] of adjacency) { (nb[a] ||= []).push(b); (nb[b] ||= []).push(a); }
+  const seen = new Set(Object.keys(owners).filter(id => owners[id] === team));
+  let ring = [...seen];
+  const layers = [];
+  while (ring.length) {
+    const next = [];
+    for (const x of ring) for (const y of nb[x] || []) if (y in owners && !seen.has(y)) { seen.add(y); next.push(y); }
+    if (next.length) layers.push(next);
+    ring = next;
+  }
+  const rest = Object.keys(owners).filter(id => !seen.has(id));
+  if (rest.length) layers.push(rest);
+  return layers;
+}

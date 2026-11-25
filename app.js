@@ -175,8 +175,7 @@ function teamSpot(team) {
 }
 const labelAt = (x, y) => { x = Math.round(x); y = Math.round(y); if (x < 0 || y < 0 || x >= W || y >= H) return null; const i = LABEL[y * W + x]; return i >= 0 ? REGIONS[i].id : null; };
 
-function paint() {
-  const { owners } = state;
+function paint(owners = state.owners) {
   for (const p of gRegions.children) {
     const r = BY_ID[p.dataset.id], o = owners[r.id];
     const fill = o ? TEAM_BY_ABBR[o].color : BLANK;
@@ -306,9 +305,10 @@ async function fight() {
   const { attacker: a, defender: b } = turn;
   const winner = resolveBattle(a, b, state.mode, state.strengths);
   const loser = winner === a ? b : a;
-  await playGame(a, b, simulateGame(winner, loser));
+  const upset = isUpset(winner, loser, state.strengths, state.mode);
+  await playGame(a, b, simulateGame(winner, loser), upset);
   busy = false;
-  finishBattle(winner);
+  finishBattle(winner, upset);
 }
 
 // ---------- simulated game popup ----------
@@ -322,7 +322,7 @@ function playText(e) {
   if (e.kind === 'two-point') return `${n} touchdown and the two-point try is good`;
   return `Safety! ${n} get 2`;
 }
-function playGame(a, b, game) {
+function playGame(a, b, game, upset = false) {
   return new Promise(resolve => {
     const ov = $('overlay'), A = TEAM_BY_ABBR[a], B = TEAM_BY_ABBR[b];
     ov.innerHTML = `<div class="game" role="dialog" aria-label="${A.name} vs ${B.name}">
@@ -355,7 +355,7 @@ function playGame(a, b, game) {
       scA.textContent = score[a]; scB.textContent = score[b];
       qEl.textContent = 'FINAL'; clockEl.textContent = '0:00';
       const w = score[a] > score[b] ? a : b;
-      addPlay(`<b>Final: ${TEAM_BY_ABBR[w].name} win ${Math.max(score[a], score[b])}–${Math.min(score[a], score[b])}</b>`);
+      addPlay(`<b>${upset ? 'UPSET! ' : ''}Final: ${TEAM_BY_ABBR[w].name} win ${Math.max(score[a], score[b])}–${Math.min(score[a], score[b])}</b>`);
       ov.querySelectorAll('.bt')[w === a ? 0 : 1].classList.add('won');
       const btn = $('g-skip'); btn.textContent = 'Continue'; btn.className = 'btn'; btn.onclick = () => { ov.hidden = true; ov.innerHTML = ''; resolve(); };
       btn.focus();
@@ -387,18 +387,20 @@ function playGame(a, b, game) {
     raf = requestAnimationFrame(tick);
   });
 }
-function finishBattle(winner) {
+function finishBattle(winner, upset = false) {
   const { attacker: a, defender: b } = turn, loser = winner === a ? b : a;
   const names = [...new Set(Object.keys(state.owners).filter(id => state.owners[id] === loser).map(id => STATE_OF[id] === 'DC' ? 'MD' : STATE_OF[id]))].map(c => CODE_TO_NAME[c]);
   const where = names.length <= 3 ? listJoin(names) : `${names.length} states`;
   state.owners = conquer(state.owners, winner, loser);
   const before = state.strengths[winner];
   state.strengths = boostWinner(state.strengths, winner, loser);
-  const grew = state.strengths[winner] > before ? ` Strength ${before} → ${state.strengths[winner]} (beat a ${state.strengths[loser]}).` : '';
-  addLog(`<b>${teamName(winner)}</b> beat the ${teamName(loser)} and take their land in ${where}.${grew}`);
-  turn = { step: 'done', attacker: a, defender: b, winner, msg: `The <b>${TEAM_BY_ABBR[winner].name}</b> win and take over the ${teamName(loser)}' land in ${where}. The ${teamName(loser)} are out.${grew}` + afterMove() };
+  const grew = state.strengths[winner] > before ? ` Strength ${before} → ${state.strengths[winner]} (beat ${String(state.strengths[loser]).startsWith('8') ? 'an' : 'a'} ${state.strengths[loser]}).` : '';
+  addLog(`${upset ? '<b class="up">UPSET!</b> ' : ''}<b>${teamName(winner)}</b> beat the ${teamName(loser)} and take their land in ${where}.${grew}`);
+  turn = { step: 'done', attacker: a, defender: b, winner, msg: `${upset ? '<b>UPSET!</b> ' : ''}The <b>${TEAM_BY_ABBR[winner].name}</b> win and take over the ${teamName(loser)}' land in ${where}. The ${teamName(loser)} are out.${grew}` + afterMove() };
   syncStrengthInputs();
   nextTurnCount(); save(); paint(); render();
+  if (upset) showUpset(winner);
+  celebrate();
 }
 
 // ---------- turn panel ----------
@@ -414,7 +416,7 @@ function render() {
   const champ = champion(state.owners);
   if (champ) {
     const t = TEAM_BY_ABBR[champ];
-    st.innerHTML = `<b>The ${t.name} rule America!</b> Last team standing after ${state.turn} turns.`;
+    st.innerHTML = `<b>The ${t.name} rule America!</b> Last team standing after ${state.turn} ${state.turn === 1 ? 'turn' : 'turns'}.`;
     mu.innerHTML = `<div class="matchup" style="grid-template-columns:1fr">${teamCard(champ, null, 'win')}</div>`;
     btn('Reset map', doReset);
   } else if (turn.step === 'wheel') {
@@ -445,6 +447,8 @@ function render() {
 // After every claim or battle: empty pockets a single team surrounds become theirs; the last team standing gets everything.
 function afterMove() {
   let msg = '';
+  // last team standing: the celebration fills the rest of the map, so skip the surround rule
+  if (champion(state.owners)) { pendingChamp = champion(state.owners); return msg; }
   const enclosed = enclosedClaims(state.owners, ADJ);
   const byTeam = {};
   for (const [id, t] of Object.entries(enclosed)) { state.owners = claim(state.owners, t, id); (byTeam[t] ||= []).push(regionName(BY_ID[id])); }
@@ -452,9 +456,55 @@ function afterMove() {
     addLog(`<b>${teamName(t)}</b> surround and take ${listJoin(names)}`);
     msg += ` The ${teamName(t)} surround ${listJoin(names)} and take ${names.length === 1 ? 'it' : 'them'} too.`;
   }
-  const champ = champion(state.owners);
-  if (champ) state.owners = fillAll(state.owners, champ);
+  if (champion(state.owners)) pendingChamp = champion(state.owners);
   return msg;
+}
+let pendingChamp = null;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// The champion's color and logo spread across the map ring by ring, then confetti.
+async function celebrate() {
+  const champ = pendingChamp; pendingChamp = null;
+  if (!champ) return;
+  busy = true; render();
+  if (!reduced) {
+    // one state at a time: nearest ring first, and within a ring, closest to the champion's logo first
+    const [lx, ly] = teamSpot(champ);
+    const order = spreadOrder(state.owners, champ, ADJ).flatMap(layer => layer.sort((p, q) => Math.hypot(CENT[p][0] - lx, CENT[p][1] - ly) - Math.hypot(CENT[q][0] - lx, CENT[q][1] - ly)));
+    const delay = Math.max(60, Math.min(220, 2400 / Math.max(1, order.length)));
+    const shown = { ...state.owners };
+    for (const id of order) { shown[id] = champ; paint(shown); await sleep(delay); }
+  }
+  state.owners = fillAll(state.owners, champ);
+  save(); paint();
+  busy = false; render();
+  if (!reduced) confetti(TEAM_BY_ABBR[champ]);
+}
+function confetti(team) {
+  const c = document.createElement('canvas');
+  c.className = 'confetti'; c.width = innerWidth * devicePixelRatio; c.height = innerHeight * devicePixelRatio;
+  document.body.appendChild(c);
+  const ctx = c.getContext('2d'), k = devicePixelRatio, colors = [team.color, team.color2, '#eef2ea', '#f0b429'];
+  const bits = Array.from({ length: 180 }, () => ({ x: Math.random() * innerWidth, y: -20 - Math.random() * innerHeight * 0.6, vx: (Math.random() - 0.5) * 2, vy: 2 + Math.random() * 3, r: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.3, w: 6 + Math.random() * 6, h: 3 + Math.random() * 4, col: colors[Math.floor(Math.random() * colors.length)] }));
+  const t0 = performance.now();
+  const frame = now => {
+    ctx.clearRect(0, 0, c.width, c.height);
+    for (const b of bits) {
+      b.x += b.vx; b.y += b.vy; b.vy += 0.03; b.r += b.vr;
+      ctx.save(); ctx.translate(b.x * k, b.y * k); ctx.rotate(b.r); ctx.fillStyle = b.col; ctx.fillRect(-b.w * k / 2, -b.h * k / 2, b.w * k, b.h * k); ctx.restore();
+    }
+    if (now - t0 < 4500) requestAnimationFrame(frame); else c.remove();
+  };
+  requestAnimationFrame(frame);
+}
+function showUpset(winner) {
+  const box = $('upset'), field = $('field');
+  box.innerHTML = `<img src="${logoUrl(winner)}" alt=""><span>UPSET!</span>`;
+  box.hidden = false;
+  box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
+  if (!reduced) { field.classList.remove('shake'); void field.offsetWidth; field.classList.add('shake'); }
+  clearTimeout(showUpset.t);
+  showUpset.t = setTimeout(() => { box.hidden = true; field.classList.remove('shake'); }, 2400);
 }
 const listJoin = a => a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`;
 function nextTurnCount() { state.turn++; }
@@ -491,7 +541,9 @@ function onRegionClick(id) {
   const alive = new Set(aliveTeams(state.owners));
   if ((turn.attacker && !alive.has(turn.attacker)) || (turn.defender && turn.step === 'battle' && !alive.has(turn.defender))) { turn = { step: 'wheel' }; clearAim(); }
   else if (turn.step === 'arrow') drawArrow(turn.attacker, arrowRot);
+  if (champion(state.owners)) pendingChamp = champion(state.owners);
   save(); paint(); render();
+  celebrate();
 }
 
 // ---------- state ----------

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
 import { TEAMS } from '../teams.js';
 
 const regions = [
@@ -143,4 +143,19 @@ test('simulateGame: winner always ends ahead, points are real football scores, q
     }
     assert.deepEqual(total, g.score);
   }
+});
+test('isUpset: only in weighted mode, when the winner had under 35% odds', () => {
+  const s = { ten: 2, kc: 8, dal: 5, hou: 6 };
+  assert.equal(isUpset('ten', 'kc', s, 'weighted'), true);   // 20%
+  assert.equal(isUpset('kc', 'ten', s, 'weighted'), false);
+  assert.equal(isUpset('dal', 'hou', s, 'weighted'), false); // 45%
+  assert.equal(isUpset('ten', 'kc', s, 'fifty'), false);
+  assert.equal(isUpset('ten', 'kc', s, 'pick'), false);
+});
+test('spreadOrder: layers of land outward from the team, nearest first', () => {
+  const o = { A: 'x', B: null, C: null, D: null, E: 'x' };
+  const adj = [['A', 'B'], ['B', 'C'], ['C', 'D']];
+  assert.deepEqual(spreadOrder(o, 'x', adj), [['B'], ['C'], ['D']]);
+  // land not connected to the team still gets filled, in a last layer
+  assert.deepEqual(spreadOrder({ A: 'x', Z: null }, 'x', []), [['Z']]);
 });

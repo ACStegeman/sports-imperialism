@@ -102,6 +102,15 @@ details summary { cursor: pointer; }
 .plays .q { color: var(--chalk-dim); font-variant-numeric: tabular-nums; margin-right: 6px; font-size: 12px; }
 .plays b { color: var(--gold); }
 @media (max-width: 480px) { .bt { grid-template-columns: 32px auto; } .bt span { display: none; } .bt img { width: 32px; height: 32px; } }
+.upset { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.upset img { width: 90px; height: 90px; background: var(--chalk); border-radius: 50%; padding: 10px; box-sizing: border-box; grid-area: 1 / 1; transform: translateY(-62px); }
+.upset span { grid-area: 1 / 1; font: 800 clamp(48px, 9vw, 96px)/1 var(--display); color: var(--gold); letter-spacing: .04em; transform: rotate(-6deg) translateY(30px); text-shadow: 0 4px 0 #1d1503, 0 0 30px rgba(0,0,0,.7); }
+.upset.pop { animation: pop .5s cubic-bezier(.2, 1.6, .4, 1) both; }
+@keyframes pop { from { transform: scale(.3); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+.field.shake { animation: shake .55s ease-in-out; }
+@keyframes shake { 0%,100% { transform: none } 15% { transform: translate(-8px, 3px) rotate(-.6deg) } 30% { transform: translate(7px, -4px) rotate(.5deg) } 45% { transform: translate(-6px, 2px) } 60% { transform: translate(5px, -2px) } 80% { transform: translate(-2px, 1px) } }
+.confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 30; }
+.log .up { color: var(--gold); }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--chalk-dim); }
 @media (prefers-reduced-motion: reduce) { .region { transition: none; } .region.target { animation: none; } }
 </style>
@@ -115,6 +124,7 @@ details summary { cursor: pointer; }
   <div class="field" id="field">
     <svg id="map" viewBox="0 0 975 610" role="img" aria-label="Map of the United States colored by NFL team territory"></svg>
     <div class="loading" id="loading">Loading map…</div>
+    <div class="upset" id="upset" hidden></div>
   </div>
 
   <aside class="side">

@@ -23,7 +23,8 @@ A personal "NFL imperialism" game: a US map with state lines where every NFL tea
 4. In 50/50 and Weighted, Fight! plays an ~8-second simulated game (scoreboard, clock, field, plays; skippable) whose score matches the already-decided winner. Battle modes (switchable): Pick winner (buttons), 50/50, Weighted (strength 1–10 per team, editable, odds = a/(a+b)).
 5. Winner takes all of loser's territory; loser leaves the wheel; winner's strength grows by a tenth of the loser's strength (max 10, one decimal). Claiming empty land gives no strength.
 6. Empty pockets bordered by only one team go to that team automatically (pockets touching any other team stay empty).
-7. Last team standing → whole map fills with the champion; a banner offers Reset map (no popup).
+7. Last team standing → the champion's color spreads over the remaining land one state at a time (nearest first), confetti in team colors, then a banner offers Reset map (no popup).
+8. Upset: in Weighted mode, a winner with under 35% odds gets an UPSET! banner over the map, a map shake, and a marked play-by-play line.
 
 ## Other
 - Manual mode: pick team from dropdown, click any region to assign it.
