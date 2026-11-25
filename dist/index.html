@@ -884,7 +884,7 @@ function playGame(a, b, game, upset = false) {
     ov.hidden = false;
     const scA = $('sc-a'), scB = $('sc-b'), qEl = $('g-q'), clockEl = $('g-clock'), plays = $('g-plays'), ball = $('g-ball');
     const QMS = reduced ? 0 : 1900 / SPEED(); // real milliseconds per quarter
-    sfx.whistle();
+    sfx.kickoff(); sfx.crowdStart();
     const names = ['1st', '2nd', '3rd', '4th'];
     const score = { [a]: 0, [b]: 0 };
     let idx = 0, done = false, raf = 0, t0 = performance.now(), ballX = 120, holdUntil = 0, held = false;
@@ -897,10 +897,10 @@ function playGame(a, b, game, upset = false) {
       const w = score[a] > score[b] ? a : b;
       addPlay(`<b>${upset ? 'UPSET! ' : ''}Final: ${TEAM_BY_ABBR[w].name} win ${Math.max(score[a], score[b])}–${Math.min(score[a], score[b])}</b>`);
       ov.querySelectorAll('.bt')[w === a ? 0 : 1].classList.add('won');
-      sfx.horn(); if (upset) sfx.roar(true);
+      sfx.final();
       const btn = $('g-skip'); btn.textContent = 'Continue'; btn.className = 'btn';
       let closed = false;
-      const close = () => { if (closed) return; closed = true; ov.hidden = true; ov.innerHTML = ''; resolve(); };
+      const close = () => { if (closed) return; closed = true; sfx.crowdStop(); ov.hidden = true; ov.innerHTML = ''; resolve(); };
       btn.onclick = close;
       if (autoplay) setTimeout(close, 1100 / SPEED()); else btn.focus();
     };
@@ -914,7 +914,7 @@ function playGame(a, b, game, upset = false) {
         if (el < at) break;
         score[e.team] += e.pts; scA.textContent = score[a]; scB.textContent = score[b];
         addPlay(`<span class="q">Q${e.q} ${fmtClock(e.clock)}</span> ${playText(e)}`);
-        if (e.pts >= 6) sfx.roar(); else sfx.cheer();
+        if (e.pts >= 6) sfx.touchdown(); else sfx.fieldGoal();
         ballX = e.team === a ? 230 : 10; holdUntil = el + 450; held = true; idx++;
       }
       // ball drifts toward the end zone of whoever scores next; after a score it sits in the end zone briefly, then resets
@@ -980,7 +980,7 @@ function nextTurn() {
       state.owners = claim(state.owners, r.team, r.region);
       addLog(`<b class="up">REBELLION!</b> The ${teamName(r.team)} rise up and retake ${regionName(BY_ID[r.region])}${from ? ` from the ${teamName(from)}` : ''}`, `Turn ${state.turn}`);
       showBanner(r.team, 'REBELLION!');
-      sfx.roar(true);
+      sfx.rebellion();
       if (from && !aliveTeams(state.owners).includes(from)) state.records = recordElimination(state.records, { team: from, by: r.team, turn: state.turn });
       commit(); paint();
     }
@@ -1065,7 +1065,7 @@ async function celebrate() {
   commit(); paint();
   busy = false; render();
   if (!reduced) confetti(TEAM_BY_ABBR[champ]);
-  sfx.roar(true); sfx.horn();
+  sfx.champion();
   stopAuto();
 }
 function confetti(team) {
@@ -1085,7 +1085,7 @@ function confetti(team) {
   };
   requestAnimationFrame(frame);
 }
-function showUpset(winner) { showBanner(winner, 'UPSET!'); sfx.roar(true); }
+function showUpset(winner) { showBanner(winner, 'UPSET!'); sfx.upset(); }
 function showBanner(winner, text) {
   const box = $('upset'), field = $('field');
   box.innerHTML = `<img src="${logoUrl(winner)}" alt=""><span>${text}</span>`;
@@ -1189,7 +1189,7 @@ function wireOptions() {
   for (const k of ['sound', 'capitals', 'rebellions']) {
     const box = $(`opt-${k}`);
     box.checked = opt(k);
-    box.onchange = () => { state.options[k] = box.checked; if (k === 'sound' && box.checked) { ac(); sfx.whistle(); } save(); paint(); render(); };
+    box.onchange = () => { state.options[k] = box.checked; if (k === 'sound' && box.checked) { ac(); sfx.touchdown(); } save(); paint(); render(); };
   }
   $('opt-records').onchange = e => {
     state.options.useRecords = e.target.checked;
@@ -1204,27 +1204,99 @@ function wireOptions() {
 }
 
 // ---------- sound (made in the browser, no files) ----------
-let AC = null;
-function ac() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); return AC; }
-function tone(freq, dur, type = 'sine', gain = 0.12, when = 0) {
-  const a = ac(), o = a.createOscillator(), g = a.createGain(), t = a.currentTime + when;
+let AC = null, MASTER = null, NOISE = null, BED = null;
+function ac() {
+  if (!AC) {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    const comp = AC.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 5;
+    MASTER = AC.createGain(); MASTER.gain.value = 1.4; MASTER.connect(comp).connect(AC.destination);
+    // 3 seconds of soft "pink" noise: the raw material for crowd sounds
+    const n = AC.sampleRate * 3; NOISE = AC.createBuffer(1, n, AC.sampleRate);
+    const d = NOISE.getChannelData(0); let b0 = 0, b1 = 0, b2 = 0;
+    for (let i = 0; i < n; i++) { const w = Math.random() * 2 - 1; b0 = 0.997 * b0 + w * 0.029; b1 = 0.985 * b1 + w * 0.032; b2 = 0.95 * b2 + w * 0.048; d[i] = (b0 + b1 + b2 + w * 0.1) * 0.9; }
+  }
+  if (AC.state === 'suspended') AC.resume();
+  return AC;
+}
+const now = () => ac().currentTime;
+function shape(g, t, attack, peak, hold, release) {
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t + attack);
+  g.gain.setValueAtTime(peak, t + attack + hold);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + attack + hold + release);
+  return t + attack + hold + release;
+}
+function band(freq, q, t, attack, peak, hold, release) {
+  const a = ac(), src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+  src.buffer = NOISE; src.loop = true; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
+  src.connect(f).connect(g).connect(MASTER);
+  const end = shape(g, t, attack, peak, hold, release);
+  src.start(t, Math.random() * 2.5); src.stop(end + 0.05);
+}
+function osc(type, freq, t, attack, peak, hold, release, { glide, vibrato, filter } = {}) {
+  const a = ac(), o = a.createOscillator(), g = a.createGain();
   o.type = type; o.frequency.setValueAtTime(freq, t);
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g).connect(a.destination); o.start(t); o.stop(t + dur + 0.05);
+  if (glide) o.frequency.exponentialRampToValueAtTime(freq * glide, t + attack + hold * 0.6);
+  if (vibrato) { const l = a.createOscillator(), lg = a.createGain(); l.frequency.value = vibrato; lg.gain.value = freq * 0.03; l.connect(lg).connect(o.frequency); l.start(t); l.stop(t + attack + hold + release + 0.05); }
+  let out = o;
+  if (filter) { const f = a.createBiquadFilter(); f.type = filter.type || 'bandpass'; f.frequency.value = filter.freq; f.Q.value = filter.q || 1; o.connect(f); out = f; }
+  out.connect(g).connect(MASTER);
+  const end = shape(g, t, attack, peak, hold, release);
+  o.start(t); o.stop(end + 0.05);
 }
-function noise(dur, gain, freq) {
-  const a = ac(), n = Math.floor(a.sampleRate * dur), buf = a.createBuffer(1, n, a.sampleRate), d = buf.getChannelData(0);
-  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-  const src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain(), t = a.currentTime;
-  src.buffer = buf; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 0.5;
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(f).connect(g).connect(a.destination); src.start();
+// A crowd: four noise bands from low rumble to hiss, plus a few dozen "voices" cheering upward.
+function crowd(t, level, dur, voices = 0) {
+  band(220, 0.7, t, 0.25, 0.55 * level, dur * 0.4, dur * 0.6);
+  band(700, 0.9, t, 0.2, 0.45 * level, dur * 0.4, dur * 0.6);
+  band(1700, 1.1, t, 0.18, 0.28 * level, dur * 0.35, dur * 0.6);
+  band(3800, 1.3, t, 0.15, 0.12 * level, dur * 0.3, dur * 0.5);
+  for (let i = 0; i < voices; i++) {
+    const st = t + Math.random() * 0.35, f0 = 230 + Math.random() * 320;
+    osc('sawtooth', f0, st, 0.12 + Math.random() * 0.15, 0.018 * level, dur * (0.25 + Math.random() * 0.3), dur * 0.5,
+      { glide: 1.25 + Math.random() * 0.3, vibrato: 5 + Math.random() * 2.5, filter: { freq: 750 + Math.random() * 700, q: 2.5 } });
+  }
 }
+function airhorn(t, blasts = 2) {
+  for (let b = 0; b < blasts; b++) {
+    const st = t + b * 0.55;
+    for (const f of [233, 235.5, 466, 470]) osc('sawtooth', f, st, 0.03, 0.07, 0.38, 0.12, { filter: { type: 'lowpass', freq: 2600, q: 0.8 } });
+  }
+}
+function claps(t, n = 6, gap = 0.32) { for (let k = 0; k < n; k++) band(2400, 0.6, t + k * gap + (k % 2 ? 0.02 : 0), 0.004, 0.5, 0.01, 0.06); }
+function drum(t) {
+  const a = ac(), o = a.createOscillator(), g = a.createGain();
+  o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.3);
+  o.connect(g).connect(MASTER); shape(g, t, 0.005, 0.6, 0.02, 0.35); o.start(t); o.stop(t + 0.45);
+  band(1800, 0.7, t, 0.002, 0.2, 0.005, 0.05);
+}
+function charge(t) { // the stadium organ "Charge!" riff
+  const notes = [[392, 0], [523, 0.14], [659, 0.28], [784, 0.42], [659, 0.7], [784, 0.84]];
+  notes.forEach(([f, d], k) => { osc('square', f, t + d, 0.01, 0.05, k === 5 ? 0.45 : 0.08, 0.08, { filter: { type: 'lowpass', freq: 3000 } }); osc('sine', f * 2, t + d, 0.01, 0.03, k === 5 ? 0.45 : 0.08, 0.08); });
+}
+function whistle(t) { for (let k = 0; k < 7; k++) osc('sine', 2750 + (k % 2) * 280, t + k * 0.06, 0.008, 0.07, 0.04, 0.02); }
+
 const sfx = {
-  whistle() { if (!opt('sound')) return; for (let i = 0; i < 6; i++) tone(2700 + (i % 2) * 260, 0.07, 'sine', 0.07, i * 0.07); },
-  roar(big) { if (!opt('sound')) return; noise(big ? 2.2 : 1.2, big ? 0.55 : 0.3, 800); },
-  cheer() { if (!opt('sound')) return; noise(0.6, 0.14, 1300); },
-  horn() { if (!opt('sound')) return; [110, 138.6, 164.8].forEach(f => tone(f, 1.1, 'sawtooth', 0.06)); },
+  kickoff() { if (!opt('sound')) return; const t = now(); whistle(t); crowd(t + 0.3, 0.6, 1.6, 10); },
+  crowdStart() { // low murmur under the whole game
+    if (!opt('sound') || BED) return;
+    const a = ac(), t = now(), nodes = [];
+    for (const [f, q, lv] of [[400, 0.5, 0.07], [1200, 0.8, 0.035]]) {
+      const src = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain(), lfo = a.createOscillator(), lg = a.createGain();
+      src.buffer = NOISE; src.loop = true; fl.type = 'bandpass'; fl.frequency.value = f; fl.Q.value = q;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(lv, t + 0.8);
+      lfo.frequency.value = 0.18 + Math.random() * 0.1; lg.gain.value = lv * 0.35; lfo.connect(lg).connect(g.gain);
+      src.connect(fl).connect(g).connect(MASTER); src.start(t, Math.random() * 2.5); lfo.start(t);
+      nodes.push({ src, g, lfo });
+    }
+    BED = { stop() { const t2 = now(); for (const n of nodes) { n.g.gain.cancelScheduledValues(t2); n.g.gain.setValueAtTime(n.g.gain.value || 0.03, t2); n.g.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.6); n.src.stop(t2 + 0.7); n.lfo.stop(t2 + 0.7); } } };
+  },
+  crowdStop() { if (BED) { BED.stop(); BED = null; } },
+  touchdown() { if (!opt('sound')) return; const t = now(); crowd(t, 1, 2.2, 28); airhorn(t + 0.25); },
+  fieldGoal() { if (!opt('sound')) return; const t = now(); crowd(t, 0.6, 1.3, 12); claps(t + 0.9, 4); },
+  final() { if (!opt('sound')) return; const t = now(); airhorn(t, 1); crowd(t + 0.1, 0.8, 2, 18); },
+  upset() { if (!opt('sound')) return; const t = now(); crowd(t, 1.2, 3, 40); charge(t + 0.4); airhorn(t + 1.6); },
+  rebellion() { if (!opt('sound')) return; const t = now(); [0, 0.3, 0.6, 0.75, 0.9].forEach(d => drum(t + d)); crowd(t + 0.8, 1, 2.2, 24); },
+  champion() { if (!opt('sound')) return; const t = now(); charge(t); crowd(t + 0.3, 1.3, 4, 48); airhorn(t + 1.4, 3); claps(t + 3, 8, 0.3); },
 };
 
 // ---------- auto-play ----------

@@ -41,7 +41,7 @@ Arrow targeting rule, winner-takes-all + elimination, starting strength values, 
 
 ## Added 2026-11-25 (round 4)
 - Home field: the defender is always home; +5 points to the home team in Weighted mode (50/50 stays even). Battle card and game scoreboard show Away @ Home.
-- Sound (option, off by default): whistle at kickoff, crowd on scores, horn at the final, big roar on upsets/rebellions/champion. Made with Web Audio, no files.
+- Sound (option, off by default), all made with Web Audio (no files): crowd murmur under every game; kickoff whistle + crowd rise; touchdown = big layered roar with cheering voices + air horn; field goal = smaller cheer + clapping; final = air horn + crowd; upset = huge roar + organ "Charge!" + air horn; rebellion = war drums + roar; champion = Charge! + longest roar + three air horns + clapping.
 - Capitals (option): each team's home region has a star. A battle wins only the land fought over (target if the attacker wins; the attacker's touching region if the defender wins). Taking a capital takes everything.
 - Rebellions (option): at each Next turn, 8% chance a knocked-out team retakes its home region and rejoins the wheel.
 - Replay: every move is saved as a snapshot; a slider and Play button replay the map; Back to game returns.
