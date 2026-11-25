@@ -227,7 +227,24 @@ function paint(owners = state.owners) {
     el('circle', { cx: spot.at[0], cy: spot.at[1], r: s * 0.5, fill: '#eef2ea', 'fill-opacity': 0.92, stroke: color, 'stroke-width': 1.5, class: 'logo' }, gLogos);
     const li = s * 0.78;
     el('image', { href: logoUrl(t.team), x: spot.at[0] - li / 2, y: spot.at[1] - li / 2, width: li, height: li, class: 'logo' }, gLogos);
-    logoSpots.push({ x: spot.at[0], y: spot.at[1], r: s / 2 });
+    logoSpots.push({ x: spot.at[0], y: spot.at[1], r: s / 2, team: t.team, area: spot.area });
+  }
+  // power-ups a team is holding ride along on the edge of its main logo
+  if (opt('powerups')) {
+    for (const [team, held] of Object.entries(state.powers || {})) {
+      if (!held.length) continue;
+      const main = logoSpots.filter(L => L.team === team).sort((p, q) => q.area - p.area)[0];
+      if (!main) continue;
+      const br = Math.max(5.5, Math.min(11, main.r * 0.42));
+      held.forEach((pid, k) => {
+        const P = POWERS.find(p => p.id === pid), ang = (40 + k * 38) * Math.PI / 180;
+        const bx = main.x + Math.cos(ang) * (main.r + br * 0.35), by = main.y + Math.sin(ang) * (main.r + br * 0.35);
+        const g = el('g', { class: 'held', transform: `translate(${bx.toFixed(1)} ${by.toFixed(1)}) scale(${(br / 8.5).toFixed(2)})` }, gLogos);
+        el('circle', { r: 8.5 }, g);
+        el('text', { y: 0.5 }, g).textContent = P.glyph;
+        el('title', {}, g).textContent = `${TEAM_BY_ABBR[team].name} are holding ${P.name}: ${P.desc}`;
+      });
+    }
   }
   if (opt('powerups')) {
     for (const [id, pid] of Object.entries(state.tokens || {})) {
