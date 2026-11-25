@@ -56,3 +56,13 @@ test('champion only when one team left', () => {
   assert.equal(champion(initialOwners(regions)), null);
   assert.equal(champion(conquer(initialOwners(regions), 'bal', 'wsh')), 'bal');
 });
+test('pickTarget prefers a nearby region slightly off-angle over a far one dead ahead', () => {
+  const c = { home: [0, 0], far: [100, 0], near: [10, 5] };
+  const o = { home: 'bal', far: null, near: null };
+  assert.equal(pickTarget('bal', 0, c, o), 'near');
+});
+test('pickTarget ignores regions behind the arrow when something is ahead', () => {
+  const c = { home: [0, 0], behind: [-3, 0], ahead: [50, 30] };
+  const o = { home: 'bal', behind: null, ahead: null };
+  assert.equal(pickTarget('bal', 0, c, o), 'ahead');
+});

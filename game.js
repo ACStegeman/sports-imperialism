@@ -28,15 +28,18 @@ export function teamCentroid(team, centroids, owners) {
 
 const angDiff = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
 
-// angleDeg in screen coords: 0 = right, 90 = down
-export function pickTarget(team, angleDeg, centroids, owners, cone = 25) {
+// angleDeg in screen coords: 0 = right, 90 = down.
+// Target = the closest region roughly in the arrow's direction: distance grows with how far off-angle it is,
+// and regions more than 90 degrees off (behind the arrow) only count if nothing is ahead.
+export function pickTarget(team, angleDeg, centroids, owners, spread = 30) {
   const [cx, cy] = teamCentroid(team, centroids, owners);
   const cands = Object.keys(owners).filter(id => owners[id] !== team && centroids[id]).map(id => {
     const [x, y] = centroids[id];
-    return { id, dist: Math.hypot(x - cx, y - cy), diff: angDiff(Math.atan2(y - cy, x - cx) * 180 / Math.PI, angleDeg) };
+    const dist = Math.hypot(x - cx, y - cy), diff = angDiff(Math.atan2(y - cy, x - cx) * 180 / Math.PI, angleDeg);
+    return { id, diff, score: dist * (1 + (diff / spread) ** 2) };
   });
-  const inCone = cands.filter(c => c.diff <= cone).sort((a, b) => a.dist - b.dist);
-  if (inCone.length) return inCone[0].id;
+  const ahead = cands.filter(c => c.diff <= 90).sort((a, b) => a.score - b.score);
+  if (ahead.length) return ahead[0].id;
   return cands.sort((a, b) => a.diff - b.diff)[0]?.id;
 }
 

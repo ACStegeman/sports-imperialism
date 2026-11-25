@@ -34,4 +34,4 @@ export const TEAMS = [
   { abbr: 'wsh', name: 'Washington Commanders', color: '#5A1414', color2: '#FFB612', lat: 39.00, lon: -77.70,  state: 'MD', strength: 5 },
 ];
 export const TEAM_BY_ABBR = Object.fromEntries(TEAMS.map(t => [t.abbr, t]));
-export const logoUrl = abbr => `https://a.espncdn.com/i/teamlogos/nfl/500/${abbr}.png`;
+export const logoUrl = abbr => `logos/${abbr}.png`;
