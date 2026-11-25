@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
 import { TEAMS } from '../teams.js';
 
 const regions = [
@@ -65,4 +65,11 @@ test('pickTarget ignores regions behind the arrow when something is ahead', () =
   const c = { home: [0, 0], behind: [-3, 0], ahead: [50, 30] };
   const o = { home: 'bal', behind: null, ahead: null };
   assert.equal(pickTarget('bal', 0, c, o), 'ahead');
+});
+test('border hides between two regions of the same team, shows otherwise', () => {
+  const o = { NV: 'lv', ID: 'lv', UT: null, WY: null, OR: 'sea' };
+  assert.equal(showBorder(o, 'NV', 'ID'), false);
+  assert.equal(showBorder(o, 'NV', 'OR'), true);
+  assert.equal(showBorder(o, 'ID', 'UT'), true);
+  assert.equal(showBorder(o, 'UT', 'WY'), true); // two open states keep their line
 });

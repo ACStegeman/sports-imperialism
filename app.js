@@ -63,12 +63,67 @@ function buildRegions(topo) {
       teams.forEach((t, i) => out.push({ id: `${code}-${t.abbr}`, state: code, team: t.abbr, d: vor.renderCell(i), clip: code, stateD: d, at: anchor(buckets[i], seeds[i]), area: buckets[i].length * step * step }));
     }
   }
-  return { regions: out, path, fc, topo };
+  return { regions: out, path, fc, topo, segments: buildSegments(topo, proj, out, ctx) };
+}
+
+// Every piece of border, tagged with the region on each side, so lines can vanish inside one team's land.
+function buildSegments(topo, proj, regions, ctx) {
+  const parts = {}; // state code -> [{id, xy}] for split states
+  for (const r of regions) if (r.clip) {
+    const t = TEAM_BY_ABBR[r.team];
+    (parts[r.state] ||= []).push({ id: r.id, xy: proj([t.lon, t.lat]), d: r.stateD });
+  }
+  const regionAt = (code, [x, y]) => {
+    const ps = parts[code];
+    if (!ps) return code;
+    let best = ps[0], b = Infinity;
+    for (const p of ps) { const dd = (p.xy[0] - x) ** 2 + (p.xy[1] - y) ** 2; if (dd < b) { b = dd; best = p; } }
+    return best.id;
+  };
+  // which states use each arc
+  const users = new Map();
+  for (const g of topo.objects.states.geometries) {
+    const code = NAME_TO_CODE[g.properties.name];
+    if (!code) continue;
+    const walk = a => Array.isArray(a) ? a.forEach(walk) : (k => { const set = users.get(k) || new Set(); set.add(code); users.set(k, set); })(a < 0 ? ~a : a);
+    walk(g.arcs);
+  }
+  const segs = [];
+  for (const [arc, set] of users) {
+    if (set.size !== 2) continue; // coastline / country edge: drawn by the outline
+    const [sa, sb] = [...set];
+    const pts = topojson.feature(topo, { type: 'LineString', arcs: [arc] }).geometry.coordinates.map(c => proj(c));
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i - 1], q = pts[i];
+      if (!p || !q) continue;
+      const m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+      segs.push({ p, q, a: regionAt(sa, m), b: regionAt(sb, m) });
+    }
+  }
+  // dividing lines inside split states: sample along each pair's bisector inside the state
+  for (const code in parts) {
+    const ps = parts[code], p2 = new Path2D(ps[0].d);
+    for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+      const [ax, ay] = ps[i].xy, [bx, by] = ps[j].xy;
+      const mx = (ax + bx) / 2, my = (ay + by) / 2, dx = -(by - ay), dy = bx - ax, len = Math.hypot(dx, dy), ux = dx / len, uy = dy / len;
+      const step = 1.5;
+      for (let t = -600; t < 600; t += step) {
+        const p = [mx + ux * t, my + uy * t], q = [mx + ux * (t + step), my + uy * (t + step)], m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+        if (!ctx.isPointInPath(p2, m[0], m[1])) continue;
+        // keep only where i and j are the two closest seeds (otherwise a third part owns this spot)
+        const near = regionAt(code, [m[0] + (ax - bx) * 0.001, m[1] + (ay - by) * 0.001]);
+        const near2 = regionAt(code, [m[0] - (ax - bx) * 0.001, m[1] - (ay - by) * 0.001]);
+        if (near === ps[i].id && near2 === ps[j].id) segs.push({ p, q, a: ps[i].id, b: ps[j].id });
+      }
+    }
+  }
+  return segs;
 }
 
 // ---------- map render ----------
-let gRegions, gLogos, gArrow, gAim;
-function drawMap({ regions, path, topo }) {
+let gRegions, gLogos, gArrow, gAim, gBorders, SEGS = [];
+function drawMap({ regions, path, topo, segments }) {
+  SEGS = segments;
   const svg = $('map');
   svg.innerHTML = '';
   const defs = el('defs', {}, svg);
@@ -85,8 +140,7 @@ function drawMap({ regions, path, topo }) {
     el('title', {}, p);
     p.addEventListener('click', () => onRegionClick(r.id));
   }
-  for (const r of regions) if (r.clip) el('path', { d: r.d, class: 'split-line', 'clip-path': `url(#clip-${r.clip})` }, svg);
-  el('path', { d: path(topojson.mesh(topo, topo.objects.states, (a, b) => a !== b)), class: 'borders' }, svg);
+  gBorders = el('path', { class: 'borders' }, svg);
   el('path', { d: path(topojson.mesh(topo, topo.objects.states, (a, b) => a === b)), class: 'outline' }, svg);
   gLogos = el('g', {}, svg);
   gAim = el('g', {}, svg);
@@ -99,9 +153,13 @@ function paint() {
   const { owners } = state;
   for (const p of gRegions.children) {
     const r = BY_ID[p.dataset.id], o = owners[r.id];
-    p.setAttribute('fill', o ? TEAM_BY_ABBR[o].color : BLANK);
+    const fill = o ? TEAM_BY_ABBR[o].color : BLANK;
+    p.setAttribute('fill', fill); p.setAttribute('stroke', fill); p.setAttribute('stroke-width', '0.8');
     p.querySelector('title').textContent = `${regionName(r)}: ${o ? TEAM_BY_ABBR[o].name : 'nobody yet'}`;
   }
+  let bd = '';
+  for (const g of SEGS) if (showBorder(owners, g.a, g.b)) bd += `M${g.p[0].toFixed(1)},${g.p[1].toFixed(1)}L${g.q[0].toFixed(1)},${g.q[1].toFixed(1)}`;
+  gBorders.setAttribute('d', bd);
   gLogos.innerHTML = '';
   for (const r of REGIONS) {
     const o = owners[r.id];

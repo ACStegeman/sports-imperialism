@@ -47,3 +47,8 @@ export function champion(owners) {
   const alive = aliveTeams(owners);
   return alive.length === 1 ? alive[0] : null;
 }
+
+// A border line shows unless the same team owns both sides. Lines between two open states stay.
+export function showBorder(owners, a, b) {
+  return owners[a] !== owners[b] || !owners[a];
+}

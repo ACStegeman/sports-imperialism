@@ -11,7 +11,7 @@
   --turf-3: #21392f;
   --chalk: #eef2ea;
   --chalk-dim: #a9b8ae;
-  --line: rgba(238,242,234,.55);
+  --line: rgba(238,242,234,.7);
   --blank: #34483f;
   --gold: #f0b429;
   --danger: #e5484d;
@@ -36,9 +36,9 @@ h1 span { color: var(--gold); }
 .tally { font-family: var(--display); font-size: 18px; color: var(--chalk-dim); letter-spacing: .06em; text-transform: uppercase; font-variant-numeric: tabular-nums; }
 .field { min-width: 0; align-self: start; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); background: var(--turf-2); border-radius: 14px; padding: 8px; position: relative; }
 #map { width: 100%; height: auto; display: block; }
-.region { stroke: none; transition: fill .5s ease; cursor: default; }
+.region { transition: fill .5s ease, stroke .5s ease; cursor: default; }
 .split-line { fill: none; stroke: var(--line); stroke-width: .6; stroke-dasharray: 3 2; pointer-events: none; }
-.borders { fill: none; stroke: var(--line); stroke-width: .8; pointer-events: none; }
+.borders { fill: none; stroke: var(--line); stroke-width: 1; stroke-linecap: round; pointer-events: none; }
 .outline { fill: none; stroke: var(--chalk); stroke-width: 1.2; pointer-events: none; }
 .assigning .region { cursor: crosshair; }
 .region.target { stroke: var(--gold); stroke-width: 3; animation: pulse 0.9s ease-in-out infinite alternate; }
@@ -164,11 +164,11 @@ const TEAMS = [
   { abbr: 'chi', name: 'Chicago Bears',         color: '#0B162A', color2: '#C83803', lat: 41.86, lon: -87.62,  state: 'IL', strength: 6 },
   { abbr: 'cin', name: 'Cincinnati Bengals',    color: '#FB4F14', color2: '#000000', lat: 39.30, lon: -82.70,  state: 'OH', strength: 6 },
   { abbr: 'cle', name: 'Cleveland Browns',      color: '#311D00', color2: '#FF3C00', lat: 41.00, lon: -82.70,  state: 'OH', strength: 3 },
-  { abbr: 'dal', name: 'Dallas Cowboys',        color: '#003594', color2: '#869397', lat: 33.00, lon: -99.50,  state: 'TX', strength: 5 },
+  { abbr: 'dal', name: 'Dallas Cowboys',        color: '#003594', color2: '#869397', lat: 31.00, lon: -103.00, state: 'TX', strength: 5 },
   { abbr: 'den', name: 'Denver Broncos',        color: '#FB4F14', color2: '#002244', lat: 39.74, lon: -105.02, state: 'CO', strength: 8 },
   { abbr: 'det', name: 'Detroit Lions',         color: '#0076B6', color2: '#B0B7BC', lat: 42.34, lon: -83.05,  state: 'MI', strength: 8 },
   { abbr: 'gb',  name: 'Green Bay Packers',     color: '#203731', color2: '#FFB612', lat: 44.50, lon: -88.06,  state: 'WI', strength: 7 },
-  { abbr: 'hou', name: 'Houston Texans',        color: '#03202F', color2: '#A71930', lat: 29.50, lon: -99.50,  state: 'TX', strength: 6 },
+  { abbr: 'hou', name: 'Houston Texans',        color: '#03202F', color2: '#A71930', lat: 31.00, lon: -97.00,  state: 'TX', strength: 6 },
   { abbr: 'ind', name: 'Indianapolis Colts',    color: '#002C5F', color2: '#A2AAAD', lat: 39.76, lon: -86.16,  state: 'IN', strength: 6 },
   { abbr: 'jax', name: 'Jacksonville Jaguars',  color: '#006778', color2: '#D7A22A', lat: 30.32, lon: -81.64,  state: 'FL', strength: 6 },
   { abbr: 'kc',  name: 'Kansas City Chiefs',    color: '#E31837', color2: '#FFB81C', lat: 39.05, lon: -94.48,  state: 'MO', strength: 8 },
@@ -242,6 +242,11 @@ function champion(owners) {
   return alive.length === 1 ? alive[0] : null;
 }
 
+// A border line shows unless the same team owns both sides. Lines between two open states stay.
+function showBorder(owners, a, b) {
+  return owners[a] !== owners[b] || !owners[a];
+}
+
 // Browser UI. Uses TEAMS, TEAM_BY_ABBR, logoUrl (teams.js) and game.js functions, concatenated by build.mjs.
 const W = 975, H = 610, BLANK = 'var(--blank)', STORE = 'nflImperialism.v1';
 const NAME_TO_CODE = { Alabama:'AL', Alaska:'AK', Arizona:'AZ', Arkansas:'AR', California:'CA', Colorado:'CO', Connecticut:'CT', Delaware:'DE', 'District of Columbia':'DC', Florida:'FL', Georgia:'GA', Hawaii:'HI', Idaho:'ID', Illinois:'IL', Indiana:'IN', Iowa:'IA', Kansas:'KS', Kentucky:'KY', Louisiana:'LA', Maine:'ME', Maryland:'MD', Massachusetts:'MA', Michigan:'MI', Minnesota:'MN', Mississippi:'MS', Missouri:'MO', Montana:'MT', Nebraska:'NE', Nevada:'NV', 'New Hampshire':'NH', 'New Jersey':'NJ', 'New Mexico':'NM', 'New York':'NY', 'North Carolina':'NC', 'North Dakota':'ND', Ohio:'OH', Oklahoma:'OK', Oregon:'OR', Pennsylvania:'PA', 'Rhode Island':'RI', 'South Carolina':'SC', 'South Dakota':'SD', Tennessee:'TN', Texas:'TX', Utah:'UT', Vermont:'VT', Virginia:'VA', Washington:'WA', 'West Virginia':'WV', Wisconsin:'WI', Wyoming:'WY' };
@@ -307,12 +312,67 @@ function buildRegions(topo) {
       teams.forEach((t, i) => out.push({ id: `${code}-${t.abbr}`, state: code, team: t.abbr, d: vor.renderCell(i), clip: code, stateD: d, at: anchor(buckets[i], seeds[i]), area: buckets[i].length * step * step }));
     }
   }
-  return { regions: out, path, fc, topo };
+  return { regions: out, path, fc, topo, segments: buildSegments(topo, proj, out, ctx) };
+}
+
+// Every piece of border, tagged with the region on each side, so lines can vanish inside one team's land.
+function buildSegments(topo, proj, regions, ctx) {
+  const parts = {}; // state code -> [{id, xy}] for split states
+  for (const r of regions) if (r.clip) {
+    const t = TEAM_BY_ABBR[r.team];
+    (parts[r.state] ||= []).push({ id: r.id, xy: proj([t.lon, t.lat]), d: r.stateD });
+  }
+  const regionAt = (code, [x, y]) => {
+    const ps = parts[code];
+    if (!ps) return code;
+    let best = ps[0], b = Infinity;
+    for (const p of ps) { const dd = (p.xy[0] - x) ** 2 + (p.xy[1] - y) ** 2; if (dd < b) { b = dd; best = p; } }
+    return best.id;
+  };
+  // which states use each arc
+  const users = new Map();
+  for (const g of topo.objects.states.geometries) {
+    const code = NAME_TO_CODE[g.properties.name];
+    if (!code) continue;
+    const walk = a => Array.isArray(a) ? a.forEach(walk) : (k => { const set = users.get(k) || new Set(); set.add(code); users.set(k, set); })(a < 0 ? ~a : a);
+    walk(g.arcs);
+  }
+  const segs = [];
+  for (const [arc, set] of users) {
+    if (set.size !== 2) continue; // coastline / country edge: drawn by the outline
+    const [sa, sb] = [...set];
+    const pts = topojson.feature(topo, { type: 'LineString', arcs: [arc] }).geometry.coordinates.map(c => proj(c));
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i - 1], q = pts[i];
+      if (!p || !q) continue;
+      const m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+      segs.push({ p, q, a: regionAt(sa, m), b: regionAt(sb, m) });
+    }
+  }
+  // dividing lines inside split states: sample along each pair's bisector inside the state
+  for (const code in parts) {
+    const ps = parts[code], p2 = new Path2D(ps[0].d);
+    for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+      const [ax, ay] = ps[i].xy, [bx, by] = ps[j].xy;
+      const mx = (ax + bx) / 2, my = (ay + by) / 2, dx = -(by - ay), dy = bx - ax, len = Math.hypot(dx, dy), ux = dx / len, uy = dy / len;
+      const step = 1.5;
+      for (let t = -600; t < 600; t += step) {
+        const p = [mx + ux * t, my + uy * t], q = [mx + ux * (t + step), my + uy * (t + step)], m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+        if (!ctx.isPointInPath(p2, m[0], m[1])) continue;
+        // keep only where i and j are the two closest seeds (otherwise a third part owns this spot)
+        const near = regionAt(code, [m[0] + (ax - bx) * 0.001, m[1] + (ay - by) * 0.001]);
+        const near2 = regionAt(code, [m[0] - (ax - bx) * 0.001, m[1] - (ay - by) * 0.001]);
+        if (near === ps[i].id && near2 === ps[j].id) segs.push({ p, q, a: ps[i].id, b: ps[j].id });
+      }
+    }
+  }
+  return segs;
 }
 
 // ---------- map render ----------
-let gRegions, gLogos, gArrow, gAim;
-function drawMap({ regions, path, topo }) {
+let gRegions, gLogos, gArrow, gAim, gBorders, SEGS = [];
+function drawMap({ regions, path, topo, segments }) {
+  SEGS = segments;
   const svg = $('map');
   svg.innerHTML = '';
   const defs = el('defs', {}, svg);
@@ -329,8 +389,7 @@ function drawMap({ regions, path, topo }) {
     el('title', {}, p);
     p.addEventListener('click', () => onRegionClick(r.id));
   }
-  for (const r of regions) if (r.clip) el('path', { d: r.d, class: 'split-line', 'clip-path': `url(#clip-${r.clip})` }, svg);
-  el('path', { d: path(topojson.mesh(topo, topo.objects.states, (a, b) => a !== b)), class: 'borders' }, svg);
+  gBorders = el('path', { class: 'borders' }, svg);
   el('path', { d: path(topojson.mesh(topo, topo.objects.states, (a, b) => a === b)), class: 'outline' }, svg);
   gLogos = el('g', {}, svg);
   gAim = el('g', {}, svg);
@@ -343,9 +402,13 @@ function paint() {
   const { owners } = state;
   for (const p of gRegions.children) {
     const r = BY_ID[p.dataset.id], o = owners[r.id];
-    p.setAttribute('fill', o ? TEAM_BY_ABBR[o].color : BLANK);
+    const fill = o ? TEAM_BY_ABBR[o].color : BLANK;
+    p.setAttribute('fill', fill); p.setAttribute('stroke', fill); p.setAttribute('stroke-width', '0.8');
     p.querySelector('title').textContent = `${regionName(r)}: ${o ? TEAM_BY_ABBR[o].name : 'nobody yet'}`;
   }
+  let bd = '';
+  for (const g of SEGS) if (showBorder(owners, g.a, g.b)) bd += `M${g.p[0].toFixed(1)},${g.p[1].toFixed(1)}L${g.q[0].toFixed(1)},${g.q[1].toFixed(1)}`;
+  gBorders.setAttribute('d', bd);
   gLogos.innerHTML = '';
   for (const r of REGIONS) {
     const o = owners[r.id];
