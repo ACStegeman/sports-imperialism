@@ -319,7 +319,7 @@ test('placeTokens: one of each power-up per game, never one that was already use
   assert.ok(!Object.values(t2).includes('hail') && !Object.values(t2).includes('bye'));
 });
 test('every league has the right teams with what the map needs', () => {
-  const expect = { nfl: 32, mlb: 30, nba: 30, nhl: 32, cfb: 67 };
+  const expect = { nfl: 32, mlb: 30, nba: 30, nhl: 32, cfb: 68 };
   for (const [k, n] of Object.entries(expect)) {
     const L = LEAGUES[k];
     assert.equal(L.teams.length, n, k);

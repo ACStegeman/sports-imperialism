@@ -132,7 +132,7 @@ const NHL = [
   { abbr: 'wsh', name: 'Washington Capitals', color: '#C8102E', color2: '#041E42', lat: 38.90, lon: -77.02, state: 'MD', strength: 8, dc: true },
   { abbr: 'wpg', name: 'Winnipeg Jets', color: '#041E42', color2: '#004C97', lat: 49.90, lon: -97.14, state: 'MB', strength: 8 },
 ];
-// The four big conferences (Big Ten, Big 12, ACC, SEC). Logos use ESPN's school ids.
+// The four big conferences (Big Ten, Big 12, ACC, SEC) plus Notre Dame. Logos use ESPN's school ids.
 const CFB = [
   { abbr: '333', name: 'Alabama Crimson Tide', short: 'Alabama Crimson Tide', color: '#9E1B32', color2: '#FFFFFF', lat: 33.21, lon: -87.54, state: 'AL', strength: 9 },
   { abbr: '8', name: 'Arkansas Razorbacks', short: 'Arkansas Razorbacks', color: '#9D2235', color2: '#FFFFFF', lat: 36.07, lon: -94.17, state: 'AR', strength: 4 },
@@ -162,7 +162,8 @@ const CFB = [
   { abbr: '194', name: 'Ohio State Buckeyes', short: 'Ohio State Buckeyes', color: '#BB0000', color2: '#666666', lat: 40.50, lon: -82.70, state: 'OH', strength: 10 },
   { abbr: '2483', name: 'Oregon Ducks', short: 'Oregon Ducks', color: '#154733', color2: '#FEE123', lat: 44.04, lon: -123.07, state: 'OR', strength: 9 },
   { abbr: '213', name: 'Penn State Nittany Lions', short: 'Penn State Nittany Lions', color: '#041E42', color2: '#FFFFFF', lat: 40.80, lon: -77.00, state: 'PA', strength: 6 },
-  { abbr: '2509', name: 'Purdue Boilermakers', short: 'Purdue Boilermakers', color: '#CEB888', color2: '#000000', lat: 40.90, lon: -86.80, state: 'IN', strength: 2 },
+  { abbr: '2509', name: 'Purdue Boilermakers', short: 'Purdue Boilermakers', color: '#CEB888', color2: '#000000', lat: 40.20, lon: -86.90, state: 'IN', strength: 2 },
+  { abbr: '87', name: 'Notre Dame Fighting Irish', short: 'Notre Dame Fighting Irish', color: '#0C2340', color2: '#C99700', lat: 41.50, lon: -86.20, state: 'IN', strength: 9 },
   { abbr: '164', name: 'Rutgers Scarlet Knights', short: 'Rutgers Scarlet Knights', color: '#CC0033', color2: '#5F6A72', lat: 40.50, lon: -74.45, state: 'NJ', strength: 3 },
   { abbr: '26', name: 'UCLA Bruins', short: 'UCLA Bruins', color: '#2D68C4', color2: '#F2A900', lat: 35.00, lon: -118.80, state: 'CA', strength: 3 },
   { abbr: '30', name: 'USC Trojans', short: 'USC Trojans', color: '#990000', color2: '#FFC72C', lat: 33.40, lon: -116.80, state: 'CA', strength: 7 },

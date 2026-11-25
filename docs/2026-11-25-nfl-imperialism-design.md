@@ -60,7 +60,7 @@ Arrow targeting rule, winner-takes-all + elimination, starting strength values, 
 - Layout (broadcast): header with Settings button; Settings panel (map, reset, options, hand land, team strength) opens above the map; full-width map capped to leave room for the control bar; control bar = wheel | turn status + matchup | battle mode, action buttons, auto-play; panels row below (empires, play-by-play, record book, power-ups, replay). Stacks to one column on phones.
 
 ## Added 2026-11-25 (round 6): leagues
-- League picker in the header: NFL, MLB, NBA, NHL, College Football (Big Ten 18, Big 12 16, ACC 17, SEC 16 = 67 schools; Notre Dame is independent in football). Switching mid-game asks first, then starts a new game. Title reads "<League> Imperialism".
+- League picker in the header: NFL, MLB, NBA, NHL, College Football (Big Ten 18, Big 12 16, ACC 17, SEC 16, plus independent Notre Dame = 68 schools; Indiana splits Notre Dame north, Purdue middle, Indiana south). Switching mid-game asks first, then starts a new game. Title reads "<League> Imperialism".
 - Maps: NFL and college use the USA map. MLB, NBA and NHL (they have Canadian teams) use a North America map: lower 48 + DC + Canada's 10 provinces (territories left out), from Natural Earth 1:50m admin-1. World map works for every league.
 - Crowded states are split by nudged team locations (Voronoi), e.g. CA: A's/Giants/Dodgers/Angels/Padres; TX college: 7 ways. DC goes with the league's Washington/Maryland team.
 - Game sims per sport: football (existing), baseball (innings, extra innings, home runs), hockey (periods, OT or shootout), basketball (quarters, ~110 points, OT). Each has its own field/rink/court, scoreboard, flashes and box score.

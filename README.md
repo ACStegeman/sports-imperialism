@@ -4,7 +4,7 @@ A map game where NFL, MLB, NBA, NHL or college football teams conquer each other
 
 **Play:** https://acstegeman.github.io/sports-imperialism/
 
-- Leagues: NFL, MLB, NBA, NHL, and college football (Big Ten, Big 12, ACC, SEC)
+- Leagues: NFL, MLB, NBA, NHL, and college football (Big Ten, Big 12, ACC, SEC, plus Notre Dame)
 - Maps: USA, North America (for leagues with Canadian teams), or the whole world
 - Battle modes: pick the winner, 50/50, or weighted by team strength, with a simulated game for each sport
 - Options: power-ups, capitals, rebellions, sound, auto-play, replay, and a record book
