@@ -372,3 +372,16 @@ export function simulateBasketball(winner, loser, rng = Math.random) {
   events.sort((a, b) => a.p - b.p || a.clock - b.clock);
   return { events, score, periods };
 }
+
+// Power-up names for each league. The effects are the same everywhere; only the names fit the sport.
+const POWER_NAMES = {
+  nfl: {},
+  cfb: { draft: ['Transfer Portal', '+1.5 strength right away.'], flag: ['Booth Review', 'Lose your next battle? It gets replayed once.'], tag: ['Redshirt', 'Knocked out? Sit a year in your home land and stay alive (once).'], home: ['Student Section', '+15% the next time you defend at home.'] },
+  mlb: { hail: ['Rally Cap', '+20% win chance in your next battle.'], blitz: ['Doubleheader', 'Play again right away: an extra turn.'], bye: ['Rainout', 'The next attack on you gets rained out.'], draft: ['Deadline Deal', '+1.5 strength right away.'], onside: ['Stolen Base', 'Steal one neighboring piece of land right away, no battle.'], flag: ["Manager's Challenge", 'Lose your next battle? It gets replayed once.'], tag: ['Extra Innings', 'Knocked out? The game goes on: keep your home land and stay alive (once).'], home: ['Packed Ballpark', '+15% the next time you defend at home.'] },
+  nba: { hail: ['Buzzer Beater', '+20% win chance in your next battle.'], blitz: ['Fast Break', 'Take an extra turn right away.'], bye: ['Load Management', 'Sit out the next attack on you: it is blocked.'], draft: ['Lottery Pick', '+1.5 strength right away.'], onside: ['Steal', 'Steal one neighboring piece of land right away, no battle.'], flag: ["Coach's Challenge", 'Lose your next battle? It gets replayed once.'], tag: ['Final Timeout', 'Knocked out? Call timeout: keep your home land and stay alive (once).'], home: ['Sixth Man', '+15% the next time you defend at home.'] },
+  nhl: { hail: ['Power Play', '+20% win chance in your next battle.'], blitz: ['Odd-Man Rush', 'Take an extra turn right away.'], bye: ['Hot Goalie', 'Your goalie stops the next attack on you.'], draft: ['Top Prospect', '+1.5 strength right away.'], onside: ['Takeaway', 'Steal one neighboring piece of land right away, no battle.'], flag: ["Coach's Challenge", 'Lose your next battle? It gets replayed once.'], tag: ['Overtime', 'Knocked out? Head to overtime: keep your home land and stay alive (once).'], home: ['Home Ice', '+15% the next time you defend at home.'] },
+};
+export function powerInfo(id, league = 'nfl') {
+  const P = POWERS.find(p => p.id === id), o = (POWER_NAMES[league] || {})[id];
+  return { id, glyph: P.glyph, name: o ? o[0] : P.name, desc: o ? o[1] : P.desc };
+}

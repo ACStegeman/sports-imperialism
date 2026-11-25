@@ -247,7 +247,7 @@ function paint(owners = state.owners) {
       if (!main) continue;
       const br = Math.max(5.5, Math.min(11, main.r * 0.42));
       held.forEach((pid, k) => {
-        const P = POWERS.find(p => p.id === pid), ang = (40 + k * 38) * Math.PI / 180;
+        const P = PW(pid), ang = (40 + k * 38) * Math.PI / 180;
         const bx = main.x + Math.cos(ang) * (main.r + br * 0.35), by = main.y + Math.sin(ang) * (main.r + br * 0.35);
         const g = el('g', { class: 'held', transform: `translate(${bx.toFixed(1)} ${by.toFixed(1)}) scale(${(br / 8.5).toFixed(2)})` }, gLogos);
         el('circle', { r: 8.5 }, g);
@@ -258,7 +258,7 @@ function paint(owners = state.owners) {
   }
   if (opt('powerups')) {
     for (const [id, pid] of Object.entries(state.tokens || {})) {
-      const r = BY_ID[id], P = POWERS.find(p => p.id === pid); if (!r || !P) continue;
+      const r = BY_ID[id], P = POWERS.some(p => p.id === pid) && PW(pid); if (!r || !P) continue;
       const g = el('g', { class: 'token', transform: `translate(${r.at[0].toFixed(1)} ${r.at[1].toFixed(1)}) scale(${MAP === 'world' ? 1.05 : 1.5})` }, gLogos);
       el('circle', { r: 8.5 }, g);
       el('text', { y: 0.5 }, g).textContent = P.glyph;
@@ -366,8 +366,8 @@ async function spinArrow() {
   showAim(a, tid);
   const defender = state.owners[tid];
   if (defender && usePower(defender, 'bye')) {
-    addLog(`<b>${teamName(defender)}</b> were on a Bye Week. The ${teamName(a)} attack is blocked`);
-    turn = { step: 'done', attacker: a, msg: `<b>Bye Week!</b> The <b>${TEAM_BY_ABBR[defender].name}</b> were resting, so the ${teamName(a)} attack on ${regionName(BY_ID[tid])} is blocked.` };
+    addLog(`<b>${teamName(defender)}</b> used ${PW('bye').name}. The ${teamName(a)} attack is blocked`);
+    turn = { step: 'done', attacker: a, msg: `<b>${PW('bye').name}!</b> The <b>${TEAM_BY_ABBR[defender].name}</b> block the ${teamName(a)} attack on ${regionName(BY_ID[tid])}.` };
     nextTurnCount(); commit();
   } else if (!defender) {
     state.owners = claim(state.owners, a, tid);
@@ -393,14 +393,14 @@ function clearAim() { showAim(null, null); drawArrow(null); }
 
 // ---------- battle ----------
 const odds = (a, b) => battleOdds(a, b, state.mode, state.strengths);
-// Win chances for a battle with power-ups: Hail Mary (+20%) for either side, Home Crowd (+15%) for the defender.
+// Win chances for a battle with power-ups: the +20% one for either side, the +15% home one for the defender.
 function battleSetup(a, b) {
   const [pa] = odds(a, b);
   if (state.mode === 'pick' || !opt('powerups')) return { p: pa, uses: [], notes: { [a]: [], [b]: [] } };
   let ba = 0, bd = 0; const uses = [], notes = { [a]: [], [b]: [] };
-  if (hasPower(a, 'hail')) { ba += 0.2; uses.push([a, 'hail']); notes[a].push('Hail Mary +20%'); }
-  if (hasPower(b, 'hail')) { bd += 0.2; uses.push([b, 'hail']); notes[b].push('Hail Mary +20%'); }
-  if (hasPower(b, 'home')) { bd += 0.15; uses.push([b, 'home']); notes[b].push('Home Crowd +15%'); }
+  if (hasPower(a, 'hail')) { ba += 0.2; uses.push([a, 'hail']); notes[a].push(`${PW('hail').name} +20%`); }
+  if (hasPower(b, 'hail')) { bd += 0.2; uses.push([b, 'hail']); notes[b].push(`${PW('hail').name} +20%`); }
+  if (hasPower(b, 'home')) { bd += 0.15; uses.push([b, 'home']); notes[b].push(`${PW('home').name} +15%`); }
   return { p: applyBonuses(pa, ba, bd), uses, notes };
 }
 async function fight() {
@@ -412,7 +412,7 @@ async function fight() {
   const flagTeam = winner === a ? b : a;
   if (opt('powerups') && usePower(flagTeam, 'flag')) {
     const again = Math.random() < setup.p ? a : b;
-    extra = again === flagTeam ? ` <b>Challenge Flag!</b> The ${teamName(flagTeam)} challenged the result and won the replay.` : ` The ${teamName(flagTeam)} threw a <b>Challenge Flag</b>, but the result stood.`;
+    extra = again === flagTeam ? ` <b>${PW('flag').name}!</b> The ${teamName(flagTeam)} challenged the result and won the replay.` : ` The ${teamName(flagTeam)} used <b>${PW('flag').name}</b>, but the result stood.`;
     winner = again;
   }
   const loser = winner === a ? b : a;
@@ -779,7 +779,7 @@ function finishBattle(winner, upset = false, winnerOdds = null, extra = '') {
     const keep = mine.includes(home) ? home : mine[0];
     if (keep) {
       state.owners = claim(state.owners, loser, keep);
-      story = story.replace(/ The [A-Za-z0-9]+ are out\./, '') + ` <b>Franchise Tag!</b> The ${teamName(loser)} hang on to ${regionName(BY_ID[keep])} and stay alive.`;
+      story = story.replace(/ The [A-Za-z0-9]+ are out\./, '') + ` <b>${PW('tag').name}!</b> The ${teamName(loser)} hang on to ${regionName(BY_ID[keep])} and stay alive.`;
     }
   }
   story += extra;
@@ -846,12 +846,12 @@ function render() {
   } else if (turn.step === 'arrow') {
     st.innerHTML = turn.missed
       ? `${MAP === 'world' ? 'Nothing but ocean' : 'No land border'} that way for the <b>${TEAM_BY_ABBR[turn.attacker].name}</b>. Respinning…`
-      : busy ? 'Aiming…' : turn.bonus ? `<b>Blitz!</b> The <b>${TEAM_BY_ABBR[turn.attacker].name}</b> attack again. Spin the arrow.` : `The <b>${TEAM_BY_ABBR[turn.attacker].name}</b> are on the move. Spin the arrow to pick a direction.`;
+      : busy ? 'Aiming…' : turn.bonus ? `<b>${PW('blitz').name}!</b> The <b>${TEAM_BY_ABBR[turn.attacker].name}</b> attack again. Spin the arrow.` : `The <b>${TEAM_BY_ABBR[turn.attacker].name}</b> are on the move. Spin the arrow to pick a direction.`;
     btn('Spin the arrow', spinArrow);
   } else if (turn.step === 'battle') {
     const { attacker: a, defender: b } = turn, setup = battleSetup(a, b), pa = setup.p, pb = 1 - setup.p, showPct = state.mode !== 'pick';
     st.innerHTML = `The arrow points at ${regionName(BY_ID[turn.region])}. Battle!`;
-    const chips = t => [...setup.notes[t], ...((state.powers || {})[t] || []).filter(p => p === 'flag' || p === 'tag' || p === 'bye').map(p => POWERS.find(q => q.id === p).name)].map(n => `<span class="chip">${n}</span>`).join('');
+    const chips = t => [...setup.notes[t], ...((state.powers || {})[t] || []).filter(p => p === 'flag' || p === 'tag' || p === 'bye').map(p => PW(p).name)].map(n => `<span class="chip">${n}</span>`).join('');
     mu.innerHTML = `<div class="matchup">${teamCard(a, showPct ? pa : null, '', 'Away')}<span class="vs">@</span>${teamCard(b, showPct ? pb : null, '', 'Home')}</div><div class="chips"><div>${chips(a)}</div><div>${chips(b)}</div></div>`;
     if (state.mode === 'pick') {
       btn(`${teamName(a)} win`, () => finishBattle(a));
@@ -1111,7 +1111,7 @@ function dropDeadPowers() {
   const alive = new Set(aliveTeams(state.owners));
   for (const [team, held] of Object.entries(state.powers || {})) {
     if (!held.length || alive.has(team)) continue;
-    addLog(`The ${teamName(team)}' ${listJoin(held.map(p => POWERS.find(q => q.id === p).name))} ${held.length === 1 ? 'is' : 'are'} gone for good`);
+    addLog(`The ${teamName(team)}' ${listJoin(held.map(p => PW(p).name))} ${held.length === 1 ? 'is' : 'are'} gone for good`);
     state.powers[team] = [];
   }
 }
@@ -1121,6 +1121,7 @@ function frontier(owners) {
   for (const [p, q] of ADJ) { if (owners[p] && !owners[q]) f.add(q); if (owners[q] && !owners[p]) f.add(p); }
   return f;
 }
+const PW = id => powerInfo(id, LEAGUE);   // this league's name for a power-up
 const hasPower = (team, id) => ((state.powers || {})[team] || []).includes(id);
 function usePower(team, id) {
   const list = (state.powers || {})[team] || [], k = list.indexOf(id);
@@ -1135,7 +1136,7 @@ function collect(team, ids) {
     const pid = (state.tokens || {})[id]; if (!pid) continue;
     delete state.tokens[id];
     (state.usedPowers ||= []).push(pid);
-    const P = POWERS.find(p => p.id === pid);
+    const P = PW(pid);
     addLog(`<b>${teamName(team)}</b> pick up <b class="up">${P.name}</b> in ${regionName(BY_ID[id])}`);
     msg += ` They pick up <b>${P.name}</b>: ${P.desc}`;
     if (pid === 'draft') { state.strengths[team] = Math.min(10, Math.round((state.strengths[team] + 1.5) * 10) / 10); syncStrengthInputs(); }
@@ -1158,15 +1159,15 @@ function onside(team) {
   if (!pool.length) return ' But there was nothing nearby to steal.';
   const id = pool[Math.floor(Math.random() * pool.length)], from = state.owners[id];
   state.owners = claim(state.owners, team, id);
-  addLog(`<b>${teamName(team)}</b> recover an onside kick and take ${regionName(BY_ID[id])}${from ? ` from the ${teamName(from)}` : ''}`);
-  return ` Onside kick recovered: they take ${regionName(BY_ID[id])}${from ? ` from the ${teamName(from)}` : ''}.` + collect(team, [id]);
+  addLog(`<b>${teamName(team)}</b> use ${PW('onside').name} and take ${regionName(BY_ID[id])}${from ? ` from the ${teamName(from)}` : ''}`);
+  return ` ${PW('onside').name}: they take ${regionName(BY_ID[id])}${from ? ` from the ${teamName(from)}` : ''}.` + collect(team, [id]);
 }
 function drawPowers() {
   const box = $('powers'); if (!box || !state) return;
   $('powers-card').hidden = !opt('powerups');
   const held = Object.entries(state.powers || {}).filter(([t, l]) => l.length && aliveTeams(state.owners).includes(t));
-  box.innerHTML = (held.length ? held.map(([t, l]) => `<li><img src="${logoUrl(t)}" alt=""><span>${TEAM_BY_ABBR[t].name}</span><span class="glyphs">${l.map(p => { const P = POWERS.find(q => q.id === p); return `<i title="${P.name}: ${P.desc}">${P.glyph}</i>`; }).join('')}</span></li>`).join('') : '<li class="none">Nobody is holding a power-up yet.</li>');
-  $('power-legend').innerHTML = POWERS.map(P => `<li><i>${P.glyph}</i><span><b>${P.name}</b>${P.desc}</span></li>`).join('');
+  box.innerHTML = (held.length ? held.map(([t, l]) => `<li><img src="${logoUrl(t)}" alt=""><span>${TEAM_BY_ABBR[t].name}</span><span class="glyphs">${l.map(p => { const P = PW(p); return `<i title="${P.name}: ${P.desc}">${P.glyph}</i>`; }).join('')}</span></li>`).join('') : '<li class="none">Nobody is holding a power-up yet.</li>');
+  $('power-legend').innerHTML = POWERS.map(Q => PW(Q.id)).map(P => `<li><i>${P.glyph}</i><span><b>${P.name}</b>${P.desc}</span></li>`).join('');
 }
 
 // ---------- options ----------

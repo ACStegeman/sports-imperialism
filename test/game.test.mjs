@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { simulateBaseball, simulateHockey, simulateBasketball, assignHomes, placeTokens, applyBonuses, POWERS, battleOdds, capitalsBattle, pickRebellion, recordBattle, recordTake, landAngles, strengthFromRecord, encodeOwners, decodeOwners, isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { powerInfo, simulateBaseball, simulateHockey, simulateBasketball, assignHomes, placeTokens, applyBonuses, POWERS, battleOdds, capitalsBattle, pickRebellion, recordBattle, recordTake, landAngles, strengthFromRecord, encodeOwners, decodeOwners, isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
 import { LEAGUES, CANADA } from '../teams.js';
 const TEAMS = LEAGUES.nfl.teams;
 
@@ -366,4 +366,14 @@ test('simulateHockey: winner wins, goals add up, about 5-7 combined goals, overt
 test('simulateBasketball: winner wins, points add up, about 200-240 combined', () => {
   const totals = checkSim(simulateBasketball, seeded(41), 200, 240, 6);
   assert.ok(Math.min(...totals) >= 150 && Math.max(...totals) <= 300);
+});
+test('every league has its own name and description for all 8 power-ups', () => {
+  for (const league of ['nfl', 'mlb', 'nba', 'nhl', 'cfb']) for (const P of POWERS) {
+    const info = powerInfo(P.id, league);
+    assert.ok(info.name && info.desc && info.glyph === P.glyph, `${league} ${P.id}`);
+  }
+  assert.equal(powerInfo('draft', 'cfb').name, 'Transfer Portal');
+  assert.equal(powerInfo('draft', 'nfl').name, 'Draft Pick');
+  assert.ok(!['nfl', 'mlb', 'nba', 'nhl'].some(l => powerInfo('draft', l).name === 'Transfer Portal'));
+  assert.ok(['mlb', 'nba', 'nhl', 'cfb'].every(l => powerInfo('tag', l).name !== 'Franchise Tag'));
 });
