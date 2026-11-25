@@ -308,3 +308,67 @@ export function applyBonuses(pa, bonusA, bonusD) {
   const a = pa + bonusA, d = (1 - pa) + bonusD;
   return Math.min(0.95, Math.max(0.05, a / (a + d)));
 }
+
+// ---------- other sports ----------
+// Each returns { events: [{ p, clock, team, pts, kind }], score, periods } with the decided winner ahead.
+const pickFrom = (rng, arr) => arr[Math.floor(rng() * arr.length)];
+const fromDist = (rng, dist) => { let r = rng(); for (let i = 0; i < dist.length; i++) { r -= dist[i]; if (r < 0) return i; } return dist.length - 1; };
+
+// Baseball: nine innings, runs in bunches, extra innings if tied. clock = 0 (top) or 1 (bottom) is decided by the screen.
+export function simulateBaseball(winner, loser, rng = Math.random) {
+  const score = { [winner]: 0, [loser]: 0 }, events = [];
+  const KIND = { 1: ['solo home run', 'RBI single', 'RBI double', 'sacrifice fly', 'RBI triple'], 2: ['two-run homer', 'two-run double', 'two-run single'], 3: ['three-run homer', 'bases-clearing double'], 4: ['grand slam'] };
+  const add = (p, team, runs) => { if (!runs) return; score[team] += runs; events.push({ p, clock: 0, team, pts: runs, kind: pickFrom(rng, KIND[Math.min(4, runs)]) }); };
+  const DIST = [0.73, 0.15, 0.07, 0.035, 0.015];
+  for (let p = 1; p <= 9; p++) for (const t of [winner, loser]) add(p, t, fromDist(rng, DIST));
+  if (score[winner] < score[loser]) add(9, winner, score[loser] - score[winner] + (rng() < 0.6 ? 1 : 2));
+  let p = 9;
+  while (score[winner] === score[loser]) { p++; if (rng() < 0.45 || p >= 15) add(p, winner, 1 + (rng() < 0.25 ? 1 : 0)); }
+  events.sort((a, b) => a.p - b.p);
+  return { events, score, periods: p };
+}
+
+// Hockey: three 20-minute periods; a tie goes to overtime (period 4) or a shootout (period 5, the winner gets 1 goal).
+export function simulateHockey(winner, loser, rng = Math.random) {
+  const score = { [winner]: 0, [loser]: 0 }, events = [];
+  const KIND = ['wrist shot', 'snap shot', 'one-timer', 'power-play goal', 'deflection', 'breakaway goal', 'rebound goal', 'slap shot'];
+  const add = (p, team, clock, kind) => { score[team]++; events.push({ p, clock, team, pts: 1, kind: kind || pickFrom(rng, KIND) }); };
+  const DIST = [0.36, 0.37, 0.19, 0.06, 0.02];
+  for (let p = 1; p <= 3; p++) for (const t of [winner, loser]) { const n = fromDist(rng, DIST); for (let k = 0; k < n; k++) add(p, t, 30 + Math.floor(rng() * 1140)); }
+  if (score[loser] > score[winner]) {
+    if (rng() < 0.75) { // usually just flip which team scored which goals
+      for (const e of events) e.team = e.team === winner ? loser : winner;
+      [score[winner], score[loser]] = [score[loser], score[winner]];
+    } else { let late = 1150; while (score[winner] < score[loser]) { add(3, winner, late, 'late goal'); late = Math.min(1195, late + 15); } }
+  }
+  let periods = 3;
+  if (score[winner] === score[loser]) {
+    if (rng() < 0.6) { periods = 4; add(4, winner, 20 + Math.floor(rng() * 280), 'overtime winner'); }
+    else { periods = 5; add(5, winner, 0, 'shootout winner'); }
+  }
+  events.sort((a, b) => a.p - b.p || a.clock - b.clock);
+  return { events, score, periods };
+}
+
+// Basketball: four 12-minute quarters of baskets; a tie goes to a 5-minute overtime (period 5).
+export function simulateBasketball(winner, loser, rng = Math.random) {
+  const score = { [winner]: 0, [loser]: 0 }, events = [];
+  const quarter = (p, team, pts, len) => {
+    let left = pts;
+    while (left > 0) {
+      const r = rng(), v = left >= 3 && r < 0.36 ? 3 : left >= 2 && r < 0.86 ? 2 : 1;
+      const kind = v === 3 ? '3-pointer' : v === 1 ? 'free throw' : pickFrom(rng, ['layup', 'dunk', 'jumper', 'floater', 'alley-oop', 'putback']);
+      events.push({ p, clock: Math.floor(rng() * len), team, pts: v, kind });
+      score[team] += v; left -= v;
+    }
+  };
+  const qs = { [winner]: [], [loser]: [] };
+  for (let p = 1; p <= 4; p++) for (const t of [winner, loser]) qs[t].push(21 + Math.floor(rng() * 16));
+  const tot = t => qs[t].reduce((a, b) => a + b, 0);
+  if (tot(winner) < tot(loser)) [qs[winner], qs[loser]] = [qs[loser], qs[winner]]; // flip so the decided winner is ahead
+  for (let p = 1; p <= 4; p++) for (const t of [winner, loser]) quarter(p, t, qs[t][p - 1], 720);
+  let periods = 4;
+  if (score[winner] === score[loser]) { periods = 5; const l = 6 + Math.floor(rng() * 7); quarter(5, loser, l, 300); quarter(5, winner, l + 1 + Math.floor(rng() * 6), 300); }
+  events.sort((a, b) => a.p - b.p || a.clock - b.clock);
+  return { events, score, periods };
+}

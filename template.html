@@ -37,6 +37,12 @@ header .tally { margin-left: auto; }
 .settings-btn[aria-expanded="true"] { background: var(--turf-3); }
 h1 { font-family: var(--display); font-weight: 800; font-size: clamp(28px, 4vw, 44px); letter-spacing: .02em; text-transform: uppercase; margin: 0; line-height: 1; }
 h1 span { color: var(--gold); }
+h1 .lname { color: var(--chalk); }
+.league-pick { display: flex; align-items: center; gap: 8px; font: 600 13px var(--body); color: var(--chalk-dim); letter-spacing: .08em; text-transform: uppercase; }
+.league-pick select { width: auto; font-size: 15px; text-transform: none; letter-spacing: 0; padding: 7px 10px; }
+.league-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; background: var(--turf-2); border: 1px solid var(--gold); border-radius: 12px; padding: 12px 16px; }
+.league-confirm span { flex: 1 1 220px; }
+.league-confirm .btn { padding: 8px 14px; font-size: 15px; }
 .tally { font-family: var(--display); font-size: 18px; color: var(--chalk-dim); letter-spacing: .06em; text-transform: uppercase; font-variant-numeric: tabular-nums; }
 .field { min-width: 0; background: var(--turf-2); border-radius: 14px; padding: 8px; position: relative; }
 #map { width: 100%; height: auto; max-height: max(300px, calc(100vh - 440px)); display: block; touch-action: none; cursor: grab; }
@@ -195,16 +201,25 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 
 <div class="app">
   <header>
-    <h1>NFL <span>Imperialism</span></h1>
+    <h1><span id="league-name" class="lname">NFL</span> <span>Imperialism</span></h1>
+    <label class="league-pick">League
+      <select id="league" aria-label="League"></select>
+    </label>
     <div class="tally" id="tally"></div>
     <button class="btn ghost settings-btn" id="settings-btn" aria-expanded="false" aria-controls="settings">Settings</button>
   </header>
+
+  <div class="league-confirm" id="league-confirm" hidden>
+    <span id="league-confirm-text"></span>
+    <button class="btn" id="league-yes">Start new game</button>
+    <button class="btn ghost" id="league-no">Keep playing</button>
+  </div>
 
   <section class="settings" id="settings" hidden>
     <div class="card">
       <p class="label">Map</p>
       <div class="seg mapseg" role="group" aria-label="Map">
-        <button data-map="usa">USA</button>
+        <button data-map="home">USA</button>
         <button data-map="world">World</button>
       </div>
       <p class="hint" id="map-hint" hidden>Switching maps starts a new game. Click again to switch.</p>

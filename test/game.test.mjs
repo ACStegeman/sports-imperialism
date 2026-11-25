@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assignHomes, placeTokens, applyBonuses, POWERS, battleOdds, capitalsBattle, pickRebellion, recordBattle, recordTake, landAngles, strengthFromRecord, encodeOwners, decodeOwners, isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
-import { TEAMS } from '../teams.js';
+import { simulateBaseball, simulateHockey, simulateBasketball, assignHomes, placeTokens, applyBonuses, POWERS, battleOdds, capitalsBattle, pickRebellion, recordBattle, recordTake, landAngles, strengthFromRecord, encodeOwners, decodeOwners, isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { LEAGUES, CANADA } from '../teams.js';
+const TEAMS = LEAGUES.nfl.teams;
 
 const regions = [
   { id: 'A', team: 'bal' }, { id: 'B', team: 'wsh' }, { id: 'C', team: null }, { id: 'D', team: 'bal' },
@@ -316,4 +317,53 @@ test('placeTokens: one of each power-up per game, never one that was already use
   const t2 = placeTokens(o, {}, 20, rng, null, new Set(['hail', 'bye']));
   assert.equal(Object.keys(t2).length, POWERS.length - 2);
   assert.ok(!Object.values(t2).includes('hail') && !Object.values(t2).includes('bye'));
+});
+test('every league has the right teams with what the map needs', () => {
+  const expect = { nfl: 32, mlb: 30, nba: 30, nhl: 32, cfb: 67 };
+  for (const [k, n] of Object.entries(expect)) {
+    const L = LEAGUES[k];
+    assert.equal(L.teams.length, n, k);
+    assert.equal(new Set(L.teams.map(t => t.abbr)).size, n, `${k} abbr unique`);
+    for (const t of L.teams) {
+      for (const f of ['abbr', 'name', 'color', 'color2', 'lat', 'lon', 'state', 'strength']) assert.ok(t[f] !== undefined, `${k} ${t.abbr} ${f}`);
+      assert.match(t.color, /^#[0-9A-F]{6}$/i);
+      assert.ok(t.strength >= 1 && t.strength <= 10);
+    }
+    assert.ok(L.teams.filter(t => t.dc).length <= 1, `${k}: at most one team holds DC`);
+  }
+  assert.ok(['mlb', 'nba', 'nhl'].every(k => LEAGUES[k].teams.some(t => CANADA.has(t.state))), 'pro leagues with Canadian teams');
+  assert.ok(['nfl', 'cfb'].every(k => !LEAGUES[k].teams.some(t => CANADA.has(t.state))), 'NFL and college are US only');
+});
+
+const seeded = n => { let seed = n; return () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }; };
+function checkSim(sim, rng, lo, hi, maxPeriod) {
+  const totals = [];
+  for (let i = 0; i < 400; i++) {
+    const g = sim('nyy', 'bos', rng);
+    assert.ok(g.score.nyy > g.score.bos, `${g.score.nyy}-${g.score.bos}`);
+    const sum = { nyy: 0, bos: 0 };
+    for (const e of g.events) { sum[e.team] += e.pts; assert.ok(e.p >= 1 && e.p <= maxPeriod, `period ${e.p}`); }
+    assert.deepEqual(sum, g.score);
+    totals.push(g.score.nyy + g.score.bos);
+  }
+  const mean = totals.reduce((a, b) => a + b, 0) / totals.length;
+  assert.ok(mean >= lo && mean <= hi, `mean total ${mean}`);
+  return totals;
+}
+test('simulateBaseball: winner wins, runs add up, typical 6-12 combined runs, extra innings happen', () => {
+  const totals = checkSim(simulateBaseball, seeded(21), 5, 13, 20);
+  assert.ok(Math.max(...totals) <= 30);
+  let extras = 0; const rng = seeded(4);
+  for (let i = 0; i < 300; i++) if (simulateBaseball('a', 'b', rng).periods > 9) extras++;
+  assert.ok(extras >= 5, `extra-inning games: ${extras}`);
+});
+test('simulateHockey: winner wins, goals add up, about 5-7 combined goals, overtime and shootouts happen', () => {
+  checkSim(simulateHockey, seeded(31), 4, 8, 5);
+  let ot = 0, so = 0; const rng = seeded(8);
+  for (let i = 0; i < 300; i++) { const g = simulateHockey('a', 'b', rng); if (g.periods === 4) ot++; if (g.periods === 5) so++; }
+  assert.ok(ot >= 5 && so >= 3, `OT ${ot}, SO ${so}`);
+});
+test('simulateBasketball: winner wins, points add up, about 200-240 combined', () => {
+  const totals = checkSim(simulateBasketball, seeded(41), 200, 240, 6);
+  assert.ok(Math.min(...totals) >= 150 && Math.max(...totals) <= 300);
 });

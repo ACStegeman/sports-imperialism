@@ -1,13 +1,20 @@
 // Browser UI. Uses TEAMS, TEAM_BY_ABBR, logoUrl (teams.js) and game.js functions, concatenated by build.mjs.
 const W = 975, H = 610, BLANK = 'var(--blank)', STORE = 'nflImperialism.v1';
 const NAME_TO_CODE = { Alabama:'AL', Alaska:'AK', Arizona:'AZ', Arkansas:'AR', California:'CA', Colorado:'CO', Connecticut:'CT', Delaware:'DE', 'District of Columbia':'DC', Florida:'FL', Georgia:'GA', Hawaii:'HI', Idaho:'ID', Illinois:'IL', Indiana:'IN', Iowa:'IA', Kansas:'KS', Kentucky:'KY', Louisiana:'LA', Maine:'ME', Maryland:'MD', Massachusetts:'MA', Michigan:'MI', Minnesota:'MN', Mississippi:'MS', Missouri:'MO', Montana:'MT', Nebraska:'NE', Nevada:'NV', 'New Hampshire':'NH', 'New Jersey':'NJ', 'New Mexico':'NM', 'New York':'NY', 'North Carolina':'NC', 'North Dakota':'ND', Ohio:'OH', Oklahoma:'OK', Oregon:'OR', Pennsylvania:'PA', 'Rhode Island':'RI', 'South Carolina':'SC', 'South Dakota':'SD', Tennessee:'TN', Texas:'TX', Utah:'UT', Vermont:'VT', Virginia:'VA', Washington:'WA', 'West Virginia':'WV', Wisconsin:'WI', Wyoming:'WY' };
+Object.assign(NAME_TO_CODE, { Alberta: 'AB', 'British Columbia': 'BC', Manitoba: 'MB', 'New Brunswick': 'NB', 'Newfoundland and Labrador': 'NL', 'Nova Scotia': 'NS', Ontario: 'ON', 'Prince Edward Island': 'PE', Quebec: 'QC', Saskatchewan: 'SK' });
 const SKIP = new Set(['Alaska', 'Hawaii']);
 const CODE_TO_NAME = Object.fromEntries(Object.entries(NAME_TO_CODE).map(([n, c]) => [c, n]));
 
 const $ = id => document.getElementById(id);
 const SVGNS = 'http://www.w3.org/2000/svg';
 const el = (tag, attrs = {}, parent) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
-const teamName = a => TEAM_BY_ABBR[a].name.split(' ').slice(-1)[0];
+// The league being played: its teams, logos and sport.
+let LEAGUE = 'nfl', TEAMS = [], TEAM_BY_ABBR = {};
+const logoUrl = a => LEAGUES[LEAGUE].logo(a);
+function setLeague(key) { LEAGUE = LEAGUES[key] ? key : 'nfl'; TEAMS = LEAGUES[LEAGUE].teams; TEAM_BY_ABBR = Object.fromEntries(TEAMS.map(t => [t.abbr, t])); }
+const needsCanada = () => TEAMS.some(t => CANADA.has(t.state));
+const homeMap = () => needsCanada() ? 'na' : 'usa';   // the USA map, or North America when the league has Canadian teams
+const teamName = a => TEAM_BY_ABBR[a].short || TEAM_BY_ABBR[a].name.split(' ').slice(-1)[0];
 let MAP = 'usa';
 const regionName = r => r.name ? r.name : r.clip ? `${r.state === 'DC' ? 'DC' : CODE_TO_NAME[r.state]} (${teamName(r.team)} part)` : CODE_TO_NAME[r.state];
 
@@ -20,7 +27,7 @@ let CAPITALS = {};            // team -> its home region id
 let autoplay = false, autoSpeed = 2, replaying = false;
 const SPEED = () => autoplay ? autoSpeed : 1;
 const opt = k => !!(state && state.options && state.options[k]);
-const UNIT = n => MAP === 'world' ? (n === 1 ? 'country' : 'countries') : (n === 1 ? 'state' : 'states');
+const UNIT = n => MAP === 'world' ? (n === 1 ? 'country' : 'countries') : MAP === 'na' ? (n === 1 ? 'state or province' : 'states and provinces') : (n === 1 ? 'state' : 'states');
 const stateLabel = code => MAP === 'world' ? BY_ID[code].name : CODE_TO_NAME[code];
 const usaKey = g => SKIP.has(g.properties.name) ? null : NAME_TO_CODE[g.properties.name];
 const worldKey = g => g.properties.name === 'Antarctica' ? null : 'W-' + g.properties.name.replace(/[^A-Za-z]+/g, '');
@@ -45,20 +52,22 @@ function anchor(points, fallback) {
   return best;
 }
 
-function buildUSA(topo) {
-  const all = topojson.feature(topo, topo.objects.states);
-  const fc = { type: 'FeatureCollection', features: all.features.filter(f => !SKIP.has(f.properties.name)) };
-  const proj = d3.geoAlbersUsa().fitExtent([[8, 8], [W - 8, H - 8]], fc);
+const naKey = g => g.properties.code;
+function buildUSA(topo, na = false) {
+  const object = na ? topo.objects.regions : topo.objects.states, keyOf = na ? naKey : usaKey;
+  const all = topojson.feature(topo, object);
+  const fc = { type: 'FeatureCollection', features: all.features.filter(f => keyOf(f)) };
+  const proj = (na ? d3.geoConicEqualArea().parallels([33, 58]).rotate([96, 0]) : d3.geoAlbersUsa()).fitExtent([[8, 8], [W - 8, H - 8]], fc);
   const path = d3.geoPath(proj);
   const ctx = document.createElement('canvas').getContext('2d');
   const out = [];
   for (const f of fc.features) {
-    const code = NAME_TO_CODE[f.properties.name];
+    const code = keyOf(f);
     const d = code && path(f);
     if (!d) continue;
     const p2 = new Path2D(d);
     const [[x0, y0], [x1, y1]] = path.bounds(f);
-    const teams = code === 'DC' ? [TEAM_BY_ABBR.wsh] : TEAMS.filter(t => t.state === code);
+    const teams = code === 'DC' ? TEAMS.filter(t => t.dc) : TEAMS.filter(t => t.state === code);
     const seeds = teams.map(t => proj([t.lon, t.lat]));
     const step = 2;
     const buckets = teams.length > 1 ? teams.map(() => []) : [[]];
@@ -75,7 +84,9 @@ function buildUSA(topo) {
       teams.forEach((t, i) => out.push({ id: `${code}-${t.abbr}`, state: code, team: t.abbr, d: vor.renderCell(i), clip: code, stateD: d, at: anchor(buckets[i], seeds[i]), area: buckets[i].length * step * step, pts: buckets[i] }));
     }
   }
-  return { regions: out, path, fc, topo, object: topo.objects.states, keyOf: usaKey, segments: buildSegments(topo, topo.objects.states, usaKey, proj, out, ctx) };
+  const [[bx0, by0], [bx1, by1]] = path.bounds(fc);
+  const frame = na ? { x: bx0 - 6, y: by0 - 6, w: bx1 - bx0 + 12, h: by1 - by0 + 12 } : null;
+  return { frame, regions: out, path, fc, topo, object, keyOf, segments: buildSegments(topo, object, keyOf, proj, out, ctx) };
 }
 
 function buildWorld(topo) {
@@ -285,7 +296,7 @@ function drawWheel() {
     const a0 = i * s, a1 = (i + 1) * s, [x0, y0] = pt(a0, R), [x1, y1] = pt(a1, R);
     const d = n === 1 ? `M${cx - R},${cy}a${R},${R} 0 1,0 ${2 * R},0a${R},${R} 0 1,0 ${-2 * R},0` : `M${cx},${cy}L${x0},${y0}A${R},${R} 0 ${s > 180 ? 1 : 0},1 ${x1},${y1}Z`;
     el('path', { d, fill: t.color, stroke: '#10201b', 'stroke-width': 1 }, g);
-    const sz = n === 1 ? 110 : Math.max(14, Math.min(48, (2 * Math.PI * R * 0.72 / n) * 0.8));
+    const sz = n === 1 ? 110 : Math.max(n > 40 ? 8 : 14, Math.min(48, (2 * Math.PI * R * 0.72 / n) * 0.8));
     const [lx, ly] = n === 1 ? [cx, cy] : pt(a0 + s / 2, R * 0.74);
     el('circle', { cx: lx, cy: ly, r: sz * 0.55, fill: '#eef2ea' }, g);
     const li = sz * 0.82;
@@ -407,7 +418,9 @@ async function fight() {
   const loser = winner === a ? b : a;
   const winnerOdds = winner === a ? setup.p : 1 - setup.p;
   const upset = state.mode === 'weighted' && winnerOdds < 0.35;
-  await playGame(a, b, simulateGame(winner, loser), upset);
+  const sport = LEAGUES[LEAGUE].sport;
+  if (sport === 'football') await playGame(a, b, simulateGame(winner, loser), upset);
+  else await playOther(a, b, (sport === 'baseball' ? simulateBaseball : sport === 'hockey' ? simulateHockey : simulateBasketball)(winner, loser), upset, sport);
   busy = false;
   finishBattle(winner, upset, winnerOdds, extra);
 }
@@ -579,6 +592,156 @@ function playGame(a, b, game, upset = false) {
         fd.setAttribute('x1', X(d.team, fdY)); fd.setAttribute('x2', X(d.team, fdY)); fd.setAttribute('opacity', showLines && fdY < 100 ? 0.9 : 0);
         if (!d.ended && el >= d.t1 && !d.event) { d.ended = true; addPlay(`${teamName(d.team)} ${STOP_TEXT[d.result]}`, 'dim'); }
       }
+      if (now > flashUntil) flash.setAttribute('opacity', 0);
+      winProb(el);
+      if (el >= total) return finish();
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  });
+}
+// ---------- baseball, hockey and basketball game screen ----------
+const SPORT = {
+  baseball: { start: 'Play ball!', unit: 'Inning', base: 9, len: p => 1, scale: (d, rem) => d / (1.3 + 3 * rem) },
+  hockey: { start: 'Puck drop!', unit: 'Period', base: 3, len: p => p === 4 ? 0.5 : p === 5 ? 0.45 : 1, scale: (d, rem) => d / (1 + 2.5 * rem) },
+  basketball: { start: 'Tip-off!', unit: 'Quarter', base: 4, len: p => p > 4 ? 0.45 : 1, scale: (d, rem) => d / (5 + 14 * rem) },
+};
+function courtSVG(sport, A, B, home) {
+  if (sport === 'baseball') return `
+    <rect width="260" height="110" fill="#2f6b3a"/>
+    <path d="M130 104 L40 20 A125 125 0 0 1 220 20 Z" fill="#3a7d44"/>
+    <path d="M130 104 L92 66 L130 30 L168 66 Z" fill="#b5835a"/>
+    <path d="M130 98 L98 66 L130 36 L162 66 Z" fill="#3a7d44"/>
+    <circle cx="130" cy="66" r="5" fill="#b5835a"/>
+    <line x1="130" y1="104" x2="34" y2="14" stroke="#fff" stroke-width=".8"/><line x1="130" y1="104" x2="226" y2="14" stroke="#fff" stroke-width=".8"/>
+    ${[[130, 101], [165, 66], [130, 33], [95, 66]].map(([x, y]) => `<rect x="${x - 2.5}" y="${y - 2.5}" width="5" height="5" fill="#fff" transform="rotate(45 ${x} ${y})"/>`).join('')}
+    <image href="${logoUrl(home)}" x="118" y="54" width="24" height="24" opacity=".35"/>`;
+  if (sport === 'hockey') return `
+    <rect width="260" height="110" rx="26" fill="#eef3f7" stroke="#9fb3c4" stroke-width="1.2"/>
+    <line x1="130" y1="2" x2="130" y2="108" stroke="#d0213a" stroke-width="2"/>
+    <line x1="92" y1="2" x2="92" y2="108" stroke="#2c5fb3" stroke-width="2"/><line x1="168" y1="2" x2="168" y2="108" stroke="#2c5fb3" stroke-width="2"/>
+    <line x1="18" y1="4" x2="18" y2="106" stroke="#d0213a" stroke-width=".8"/><line x1="242" y1="4" x2="242" y2="106" stroke="#d0213a" stroke-width=".8"/>
+    <path d="M18 47 A8 8 0 0 1 18 63" fill="#9fc4ec"/><path d="M242 47 A8 8 0 0 0 242 63" fill="#9fc4ec"/>
+    <rect x="12" y="50" width="6" height="10" fill="none" stroke="${A.color}" stroke-width="1.4"/><rect x="242" y="50" width="6" height="10" fill="none" stroke="${B.color}" stroke-width="1.4"/>
+    <circle cx="130" cy="55" r="13" fill="none" stroke="#2c5fb3" stroke-width="1"/>
+    <image href="${logoUrl(home)}" x="118" y="43" width="24" height="24" opacity=".3"/>`;
+  return `
+    <rect width="260" height="110" fill="#c8915a"/>
+    <rect x="4" y="4" width="252" height="102" fill="none" stroke="#fff" stroke-width="1"/>
+    <line x1="130" y1="4" x2="130" y2="106" stroke="#fff" stroke-width="1"/><circle cx="130" cy="55" r="12" fill="none" stroke="#fff" stroke-width="1"/>
+    <rect x="4" y="38" width="38" height="34" fill="${A.color}" opacity=".55" stroke="#fff" stroke-width="1"/><rect x="218" y="38" width="38" height="34" fill="${B.color}" opacity=".55" stroke="#fff" stroke-width="1"/>
+    <path d="M4 12 L22 12 A44 44 0 0 1 22 98 L4 98" fill="none" stroke="#fff" stroke-width="1"/><path d="M256 12 L238 12 A44 44 0 0 0 238 98 L256 98" fill="none" stroke="#fff" stroke-width="1"/>
+    <circle cx="13" cy="55" r="3" fill="none" stroke="#f26b1d" stroke-width="1.5"/><circle cx="247" cy="55" r="3" fill="none" stroke="#f26b1d" stroke-width="1.5"/>
+    <image href="${logoUrl(home)}" x="118" y="43" width="24" height="24" opacity=".35"/>`;
+}
+function playOther(a, b, game, upset, sport) {
+  return new Promise(resolve => {
+    const S = SPORT[sport], ov = $('overlay'), A = TEAM_BY_ABBR[a], B = TEAM_BY_ABBR[b];
+    ov.innerHTML = `<div class="game" id="game-open" role="dialog" aria-label="${A.name} at ${B.name}">
+      <div class="board">
+        <div class="bt" id="bt-a"><img src="${logoUrl(a)}" alt=""><span>${teamName(a)}<small>AWAY</small></span><b id="sc-a">0</b></div>
+        <div class="clock"><span id="g-q"></span><span id="g-clock"></span></div>
+        <div class="bt" id="bt-b"><img src="${logoUrl(b)}" alt=""><span>${teamName(b)}<small>HOME</small></span><b id="sc-b">0</b></div>
+      </div>
+      <div class="wp" aria-hidden="true"><div class="wp-a" id="wp-a" style="background:${A.color}"></div><div class="wp-b" style="background:${B.color}"></div><span class="wp-l" id="wp-l"></span></div>
+      <svg class="gfield" viewBox="0 0 260 110" aria-hidden="true">${courtSVG(sport, A, B, b)}
+        <g id="g-ballg"><circle r="${sport === 'basketball' ? 3.6 : 2.6}" fill="${sport === 'hockey' ? '#111' : sport === 'basketball' ? '#e0661c' : '#fff'}" stroke="${sport === 'baseball' ? '#c33' : '#000'}" stroke-width=".5"/></g>
+        <text id="g-flash" x="130" y="62" class="flash" opacity="0"></text>
+      </svg>
+      <div class="linescore" id="g-line" hidden></div>
+      <ul class="plays" id="g-plays"><li>${S.start}</li></ul>
+      <div class="row"><button class="btn ghost" id="g-skip">Skip to final</button></div>
+    </div>`;
+    ov.hidden = false;
+    const scA = $('sc-a'), scB = $('sc-b'), qEl = $('g-q'), clockEl = $('g-clock'), plays = $('g-plays'), ballG = $('g-ballg'), flash = $('g-flash'), wpA = $('wp-a'), wpL = $('wp-l');
+    const PMS = reduced ? 0 : (2300 * 4 / S.base) / SPEED();
+    sfx.kickoff(); sfx.crowdStart();
+    // when each period starts and how long it lasts, in real milliseconds
+    const starts = []; let acc = 0;
+    for (let p = 1; p <= game.periods; p++) { starts[p] = acc; acc += S.len(p) * PMS; }
+    const total = acc;
+    const periodLen = p => sport === 'hockey' ? (p === 4 ? 300 : 1200) : sport === 'basketball' ? (p > 4 ? 300 : 720) : 1;
+    for (const e of game.events) {
+      const frac = sport === 'baseball' ? (e.team === a ? 0.1 + Math.random() * 0.35 : 0.55 + Math.random() * 0.4) : sport === 'hockey' && e.p === 5 ? 0.6 : e.clock / periodLen(e.p);
+      e.at = starts[e.p] + frac * S.len(e.p) * PMS;
+    }
+    game.events.sort((x, y) => x.at - y.at);
+    const score = { [a]: 0, [b]: 0 };
+    let idx = 0, done = false, raf = 0, t0 = performance.now(), flashUntil = 0, ball = { x: 130, y: 55 }, shot = null, shown = 0;
+    const addPlay = html => { const li = document.createElement('li'); li.innerHTML = html; plays.prepend(li); while (plays.children.length > 4) plays.lastChild.remove(); };
+    const setScore = () => { scA.textContent = score[a]; scB.textContent = score[b]; };
+    const showFlash = (text, color, ms) => { flash.textContent = text; flash.setAttribute('fill', color); flash.setAttribute('opacity', 1); flash.classList.remove('pop'); void flash.getBoundingClientRect(); flash.classList.add('pop'); flashUntil = performance.now() + ms; };
+    const pLabel = p => sport === 'hockey' ? (p === 4 ? 'OT' : p === 5 ? 'SO' : `P${p}`) : sport === 'basketball' ? (p > 4 ? 'OT' : `Q${p}`) : `${p}`;
+    const winProb = el => {
+      const rem = Math.max(0, 1 - el / Math.max(1, total)), p = 1 / (1 + Math.exp(-S.scale(score[a] - score[b], rem)));
+      wpA.style.width = `${(p * 100).toFixed(1)}%`;
+      wpL.textContent = p >= 0.5 ? `${teamName(a)} ${Math.round(p * 100)}%` : `${teamName(b)} ${Math.round((1 - p) * 100)}%`;
+    };
+    const lineScore = () => {
+      const ps = Array.from({ length: game.periods }, (_, i) => i + 1);
+      const by = (t, p) => game.events.filter(e => e.team === t && e.p === p).reduce((n, e) => n + e.pts, 0);
+      const row = t => `<tr><th><img src="${logoUrl(t)}" alt="">${teamName(t)}</th>${ps.map(p => `<td>${by(t, p)}</td>`).join('')}<td class="tot">${game.score[t]}</td></tr>`;
+      $('g-line').innerHTML = `<table><thead><tr><th></th>${ps.map(p => `<th>${sport === 'baseball' ? p : pLabel(p).replace(/^[PQ]/, '')}</th>`).join('')}<th>${sport === 'baseball' ? 'R' : 'T'}</th></tr></thead><tbody>${row(a)}${row(b)}</tbody></table>`;
+      $('g-line').hidden = false;
+    };
+    const finalLabel = () => sport === 'baseball' ? (game.periods > 9 ? `FINAL/${game.periods}` : 'FINAL') : sport === 'hockey' ? (game.periods === 4 ? 'FINAL/OT' : game.periods === 5 ? 'FINAL/SO' : 'FINAL') : game.periods > 4 ? 'FINAL/OT' : 'FINAL';
+    const finish = () => {
+      if (done) return; done = true; cancelAnimationFrame(raf);
+      score[a] = game.score[a]; score[b] = game.score[b]; setScore();
+      flash.setAttribute('opacity', 0);
+      const w = score[a] > score[b] ? a : b;
+      wpA.style.width = w === a ? '100%' : '0%'; wpL.textContent = `${teamName(w)} win`;
+      qEl.textContent = finalLabel(); clockEl.textContent = '';
+      addPlay(`<b>${upset ? 'UPSET! ' : ''}Final: ${TEAM_BY_ABBR[w].name} win ${Math.max(score[a], score[b])}–${Math.min(score[a], score[b])}</b>`);
+      $(w === a ? 'bt-a' : 'bt-b').classList.add('won');
+      lineScore(); sfx.final();
+      const btn = $('g-skip'); btn.textContent = 'Continue'; btn.className = 'btn';
+      let closed = false;
+      const close = () => { if (closed) return; closed = true; sfx.crowdStop(); ov.hidden = true; ov.innerHTML = ''; resolve(); };
+      btn.onclick = close;
+      if (autoplay) setTimeout(close, 1400 / SPEED()); else btn.focus();
+    };
+    $('g-skip').onclick = finish;
+    if (!PMS) return finish();
+    const tick = now => {
+      const el = now - t0;
+      let p = 1; while (p < game.periods && el >= starts[p + 1]) p++;
+      const into = (el - starts[p]) / (S.len(p) * PMS);
+      if (sport === 'baseball') { qEl.textContent = `${into < 0.5 ? 'Top' : 'Bot'} ${p}`; clockEl.textContent = `${into < 0.5 ? teamName(a) : teamName(b)} batting`; }
+      else if (sport === 'hockey' && p === 5) { qEl.textContent = 'Shootout'; clockEl.textContent = ''; }
+      else { qEl.textContent = pLabel(p); clockEl.textContent = fmtClock(Math.max(0, Math.round(periodLen(p) * (1 - Math.min(1, into))))); }
+      while (idx < game.events.length && el >= game.events[idx].at) {
+        const e = game.events[idx]; idx++;
+        score[e.team] += e.pts; setScore();
+        const col = TEAM_BY_ABBR[e.team].color, n = teamName(e.team);
+        if (sport === 'baseball') {
+          const hr = /home run|homer|slam/.test(e.kind);
+          addPlay(`<span class="q">${e.team === a ? 'Top' : 'Bot'} ${e.p}</span> ${n}: ${e.kind}${e.pts > 1 ? `, ${e.pts} runs score` : ''}`);
+          showFlash(hr ? (e.kind === 'grand slam' ? 'GRAND SLAM!' : 'HOME RUN!') : e.pts > 1 ? `${e.pts} RUNS!` : 'RUN SCORES!', col, 1000);
+          hr ? sfx.touchdown() : sfx.fieldGoal();
+          shot = { from: [130, 101], to: hr ? [60 + Math.random() * 140, 8] : [100 + Math.random() * 60, 40], t: now, ms: 650 };
+        } else if (sport === 'hockey') {
+          addPlay(`<span class="q">${pLabel(e.p)}${e.p < 5 ? ' ' + fmtClock(periodLen(e.p) - e.clock) : ''}</span> ${n} goal: ${e.kind}`);
+          showFlash(e.p === 5 ? 'SHOOTOUT WIN!' : 'GOAL!', col, 1000); sfx.touchdown();
+          shot = { from: [ball.x, ball.y], to: [e.team === a ? 245 : 15, 55], t: now, ms: 300 };
+        } else {
+          const big = e.kind === '3-pointer' || e.kind === 'dunk' || e.kind === 'alley-oop';
+          if (big && Math.random() < 0.35) { addPlay(`<span class="q">${pLabel(e.p)} ${fmtClock(periodLen(e.p) - e.clock)}</span> ${n} ${e.kind}`); shown++; }
+          if (big && Math.random() < 0.3) { showFlash(e.kind === '3-pointer' ? 'FROM DOWNTOWN!' : 'SLAM!', col, 700); sfx.fieldGoal(); }
+          shot = { from: [ball.x, ball.y], to: [e.team === a ? 247 : 13, 55], t: now, ms: 220 };
+        }
+      }
+      // ball or puck: flies on a score, otherwise drifts toward whoever scores next
+      if (shot && now - shot.t < shot.ms) {
+        const k = (now - shot.t) / shot.ms;
+        ball.x = shot.from[0] + (shot.to[0] - shot.from[0]) * k; ball.y = shot.from[1] + (shot.to[1] - shot.from[1]) * k - (sport === 'baseball' ? Math.sin(k * Math.PI) * 18 : 0);
+      } else if (sport === 'baseball') { if (!shot || now - shot.t > shot.ms + 300) { ball.x = 130 + (Math.random() - 0.5) * 2; ball.y = 70 + (Math.random() - 0.5) * 2; } }
+      else {
+        const next = game.events[idx], gx = next ? (next.team === a ? 200 : 60) : 130;
+        ball.x = Math.max(16, Math.min(244, ball.x + (gx - ball.x) * 0.03 + (Math.random() - 0.5) * 4));
+        ball.y = Math.max(10, Math.min(100, ball.y + (55 - ball.y) * 0.02 + (Math.random() - 0.5) * 4));
+      }
+      ballG.setAttribute('transform', `translate(${ball.x.toFixed(1)} ${ball.y.toFixed(1)})`);
       if (now > flashUntil) flash.setAttribute('opacity', 0);
       winProb(el);
       if (el >= total) return finish();
@@ -839,10 +1002,11 @@ function startStrengths(options, wl) {
   }));
 }
 function fresh(keep = {}) {
-  const options = { ...DEFAULT_OPTIONS, ...(keep.options || {}) }, wl = keep.wl || {};
+  const options = { ...DEFAULT_OPTIONS, ...(keep.options || {}) }, wl = (keep.league || 'nfl') === LEAGUE ? keep.wl || {} : {};
   let owners, home;
   if (MAP === 'world') {
-    const eligible = REGIONS.filter(r => r.area >= 350 && r.pts.length).map(r => r.id);
+    const big = REGIONS.filter(r => r.pts.length).sort((p, q) => q.area - p.area);
+    const eligible = big.filter((r, i) => r.area >= 350 || i < TEAMS.length + 10).map(r => r.id);
     home = assignHomes(eligible, TEAMS.map(t => t.abbr));
     owners = Object.fromEntries(REGIONS.map(r => [r.id, null]));
     for (const [t, id] of Object.entries(home)) owners[id] = t;
@@ -851,14 +1015,14 @@ function fresh(keep = {}) {
     home = usaHomes();
   }
   const tokens = options.powerups ? placeTokens(owners, {}, POWERS.length, Math.random, frontier(owners)) : {};
-  return { map: MAP, owners, home, tokens, powers: {}, usedPowers: [], bonusTurn: null, strengths: startStrengths(options, wl), mode: keep.mode || 'pick', log: [], turn: 0, options, wl, records: {},
+  return { league: LEAGUE, map: MAP, owners, home, tokens, powers: {}, usedPowers: [], bonusTurn: null, strengths: startStrengths(options, wl), mode: keep.mode || 'pick', log: [], turn: 0, options, wl, records: {},
     history: [{ t: 0, c: encodeOwners(owners, REGIONS.map(r => r.id), TEAMS.map(t => t.abbr)) }] };
 }
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE));
     // saved games from older versions may have extra regions (Alaska, Hawaii): keep only today's regions
-    if (s && s.owners && (s.map || 'usa') === MAP && REGIONS.every(r => r.id in s.owners)) {
+    if (s && s.owners && (s.map || 'usa') === MAP && (s.league || 'nfl') === LEAGUE && REGIONS.every(r => r.id in s.owners)) {
       const f = fresh(s);
       const owners = Object.fromEntries(REGIONS.map(r => [r.id, s.owners[r.id]]));
       return { ...f, ...s, map: MAP, options: f.options, wl: f.wl, records: s.records || {}, history: s.history && s.history.length ? s.history : f.history, owners,
@@ -1197,8 +1361,8 @@ function drawRecords() { const e = $('records'); if (e && state) e.innerHTML = r
 // Load a map's data and build its regions, borders and lookup tables.
 async function loadMap(key) {
   MAP = key;
-  const topo = await (await fetch(key === 'world' ? 'countries-110m.json' : 'states-10m.json')).json();
-  const built = key === 'world' ? buildWorld(topo) : buildUSA(topo);
+  const topo = await (await fetch(key === 'world' ? 'countries-110m.json' : key === 'na' ? 'na-50m.json' : 'states-10m.json')).json();
+  const built = key === 'world' ? buildWorld(topo) : buildUSA(topo, key === 'na');
   REGIONS = built.regions;
   BY_ID = Object.fromEntries(REGIONS.map(r => [r.id, r]));
   STATE_OF = Object.fromEntries(REGIONS.map(r => [r.id, r.state]));
@@ -1223,23 +1387,54 @@ async function switchMap(key) {
   save(); drawMapSwitch(); drawStrengths(); paint(); render(); drawReplay(); drawRecords();
 }
 function drawMapSwitch() {
-  for (const b of document.querySelectorAll('.mapseg button')) b.setAttribute('aria-pressed', String(b.dataset.map === MAP));
-  $('map').setAttribute('aria-label', MAP === 'world' ? 'World map colored by NFL team territory' : 'Map of the United States colored by NFL team territory');
+  const home = document.querySelector('.mapseg button[data-map="home"]');
+  home.textContent = needsCanada() ? 'North America' : 'USA';
+  for (const b of document.querySelectorAll('.mapseg button')) b.setAttribute('aria-pressed', String(b.dataset.map === 'world' ? MAP === 'world' : MAP !== 'world'));
+  const L = LEAGUES[LEAGUE].name;
+  $('map').setAttribute('aria-label', `${MAP === 'world' ? 'World map' : MAP === 'na' ? 'Map of North America' : 'Map of the United States'} colored by ${L} team territory`);
+  $('league-name').textContent = L;
+  document.title = `${L} Imperialism`;
+  $('league').value = LEAGUE;
+}
+const preloadLogos = () => Promise.all(TEAMS.map(t => new Promise(res => { const im = new Image(); im.onload = im.onerror = res; im.src = logoUrl(t.abbr); })));
+// Pick a different league: new teams, new logos, the right map, and a new game.
+async function switchLeague(key) {
+  if (key === LEAGUE || busy) return;
+  stopAuto(); exitReplay(false);
+  $('loading').hidden = false; $('loading').textContent = 'Loading teams…';
+  setLeague(key);
+  await preloadLogos();
+  await loadMap(MAP === 'world' ? 'world' : homeMap());
+  state = fresh({ ...state, league: key }); CAPITALS = state.home;
+  turn = { step: 'wheel' }; wheelRot = 0; arrowRot = 0;
+  $('loading').hidden = true;
+  save(); drawMapSwitch(); drawStrengths(); paint(); render(); drawReplay(); drawRecords();
 }
 
 async function boot() {
-  let savedMap = 'usa';
-  try { savedMap = (JSON.parse(localStorage.getItem(STORE)) || {}).map || 'usa'; } catch {}
-  await Promise.all(TEAMS.map(t => new Promise(res => { const im = new Image(); im.onload = im.onerror = res; im.src = logoUrl(t.abbr); })));
-  await loadMap(savedMap);
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(STORE)) || {}; } catch {}
+  setLeague(saved.league || 'nfl');
+  $('league').innerHTML = Object.values(LEAGUES).map(L => `<option value="${L.key}">${L.name}</option>`).join('');
+  await preloadLogos();
+  await loadMap(saved.map === 'world' ? 'world' : homeMap());
   state = load(); CAPITALS = state.home;
   $('loading').hidden = true;
   drawStrengths(); wireOptions(); wireZoom(); drawReplay(); drawRecords(); drawMapSwitch();
   for (const b of document.querySelectorAll('.seg:not(.mapseg) button')) b.onclick = () => { state.mode = b.dataset.mode; if (state.mode === 'pick') stopAuto(); save(); render(); };
+  $('league').onchange = e => {
+    const key = e.target.value;
+    if (state.turn === 0) { switchLeague(key); return; }
+    $('league-confirm').hidden = false;
+    $('league-confirm-text').textContent = `Start a new ${LEAGUES[key].name} game? This one will end.`;
+    $('league-yes').onclick = () => { $('league-confirm').hidden = true; switchLeague(key); };
+    $('league-no').onclick = () => { $('league-confirm').hidden = true; e.target.value = LEAGUE; };
+  };
   for (const b of document.querySelectorAll('.mapseg button')) b.onclick = () => {
-    if (b.dataset.map === MAP) return;
+    const target = b.dataset.map === 'world' ? 'world' : homeMap();
+    if (target === MAP) return;
     const hint = $('map-hint');
-    if (mapArmed === b.dataset.map) { clearTimeout(mapArmed.t); mapArmed = null; hint.hidden = true; switchMap(b.dataset.map); return; }
+    if (mapArmed === b.dataset.map) { clearTimeout(mapArmed.t); mapArmed = null; hint.hidden = true; switchMap(target); return; }
     mapArmed = b.dataset.map; hint.hidden = false;
     setTimeout(() => { if (mapArmed === b.dataset.map) { mapArmed = null; hint.hidden = true; } }, 3500);
   };
