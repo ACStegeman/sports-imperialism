@@ -98,7 +98,8 @@ const touchesTeam = (team, id, owners, adjacency) =>
 // Follow the arrow's line from (ox, oy). labelAt(x, y) -> region id, or null for water / off the map.
 // The first land not owned by the team is the target. Crossing open water is only allowed to land the
 // team already borders by land (Packers -> Lions). Nothing reached -> null, meaning respin.
-export function rayTarget(team, [ox, oy], angleDeg, labelAt, owners, adjacency, { maxDist = 1500, minGap = 4, step = 1 } = {}) {
+// crossWater: true (World map) lets the arrow cross oceans to whatever land it reaches first.
+export function rayTarget(team, [ox, oy], angleDeg, labelAt, owners, adjacency, { maxDist = 1500, minGap = 4, step = 1, crossWater = false } = {}) {
   const dx = Math.cos(angleDeg * Math.PI / 180), dy = Math.sin(angleDeg * Math.PI / 180);
   let gap = 0, crossedWater = false;
   for (let t = 0; t <= maxDist; t += step) {
@@ -106,14 +107,15 @@ export function rayTarget(team, [ox, oy], angleDeg, labelAt, owners, adjacency, 
     if (!id) { gap += step; if (gap >= minGap) crossedWater = true; continue; }
     gap = 0;
     if (owners[id] === team) { crossedWater = false; continue; }
-    if (!crossedWater) return id;
+    if (!crossedWater || crossWater) return id;
     return touchesTeam(team, id, owners, adjacency) ? id : null;
   }
   return null;
 }
 
 // Empty pockets of land bordered by exactly one team go to that team. Returns { regionId: team }.
-export function enclosedClaims(owners, adjacency) {
+// coastal (optional): regions on open water; a pocket that touches the sea isn't surrounded.
+export function enclosedClaims(owners, adjacency, coastal = null) {
   const nb = {};
   for (const [a, b] of adjacency) { (nb[a] ||= []).push(b); (nb[b] ||= []).push(a); }
   const seen = new Set(), out = {};
@@ -129,7 +131,7 @@ export function enclosedClaims(owners, adjacency) {
         else if (!seen.has(y)) { seen.add(y); stack.push(y); }
       }
     }
-    if (around.size === 1) { const t = [...around][0]; for (const p of pocket) out[p] = t; }
+    if (around.size === 1 && !(coastal && pocket.some(p => coastal.has(p)))) { const t = [...around][0]; for (const p of pocket) out[p] = t; }
   }
   return out;
 }
@@ -269,4 +271,42 @@ export function landAngles(team, origin, labelAt, owners, adjacency, { step = 3,
   const out = [];
   for (let a = 0; a < 360; a += step) if (rayTarget(team, origin, a, labelAt, owners, adjacency, opts)) out.push(a);
   return out;
+}
+
+// World map: each team gets a different random country from the eligible list.
+export function assignHomes(eligible, teams, rng = Math.random) {
+  const pool = [...eligible], out = {};
+  for (const t of teams) out[t] = pool.splice(Math.floor(rng() * pool.length), 1)[0];
+  return out;
+}
+
+// Power-ups.
+export const POWERS = [
+  { id: 'hail', name: 'Hail Mary', glyph: '✦', desc: '+20% win chance in your next battle.' },
+  { id: 'blitz', name: 'Blitz', glyph: '»', desc: 'Take an extra turn right away.' },
+  { id: 'bye', name: 'Bye Week', glyph: '◆', desc: 'The next attack on you is blocked.' },
+  { id: 'draft', name: 'Draft Pick', glyph: '✚', desc: '+1.5 strength right away.' },
+  { id: 'onside', name: 'Onside Kick', glyph: '↗', desc: 'Steal one neighboring piece of land right away, no battle.' },
+  { id: 'flag', name: 'Challenge Flag', glyph: '⚑', desc: 'Lose your next battle? It gets replayed once.' },
+  { id: 'tag', name: 'Franchise Tag', glyph: '★', desc: 'Knocked out? Keep your home land and stay alive (once).' },
+  { id: 'home', name: 'Home Crowd', glyph: '⌂', desc: '+15% the next time you defend at home.' },
+];
+// Top up power-up tokens on empty land (one per region) until there are `count`.
+// prefer (optional): regions to fill first, such as empty land next to a team.
+export function placeTokens(owners, tokens, count, rng = Math.random, prefer = null) {
+  const out = { ...tokens };
+  const open = Object.keys(owners).filter(id => !owners[id] && !(id in out));
+  const near = prefer ? open.filter(id => prefer.has(id)) : [];
+  while (Object.keys(out).length < count && open.length) {
+    const from = near.length ? near : open;
+    const id = from.splice(Math.floor(rng() * from.length), 1)[0];
+    if (from === near) open.splice(open.indexOf(id), 1);
+    out[id] = POWERS[Math.floor(rng() * POWERS.length)].id;
+  }
+  return out;
+}
+// Attacker's win chance after power-up boosts: each side's chance plus its boost, then shared out again.
+export function applyBonuses(pa, bonusA, bonusD) {
+  const a = pa + bonusA, d = (1 - pa) + bonusD;
+  return Math.min(0.95, Math.max(0.05, a / (a + d)));
 }

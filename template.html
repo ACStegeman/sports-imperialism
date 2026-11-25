@@ -155,6 +155,23 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .linescore tbody th { text-align: left; font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .linescore tbody th img { width: 20px; height: 20px; background: var(--chalk); border-radius: 50%; padding: 2px; box-sizing: border-box; }
 .linescore .tot { font-weight: 800; color: var(--gold); }
+.mapseg { grid-template-columns: 1fr 1fr; }
+.token circle { fill: var(--gold); stroke: #1d1503; stroke-width: 1.4; }
+.token text { font: 700 10px var(--body); fill: #1d1503; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+.token { animation: bob 2.4s ease-in-out infinite; transform-box: fill-box; }
+@keyframes bob { 50% { opacity: .75 } }
+.powers, .legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.powers li { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; }
+.powers li.none { display: block; color: var(--chalk-dim); }
+.powers img { width: 22px; height: 22px; background: var(--chalk); border-radius: 50%; padding: 2px; box-sizing: border-box; }
+.glyphs { display: flex; gap: 4px; }
+.glyphs i, .legend i { font-style: normal; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--gold); color: #1d1503; font-weight: 700; font-size: 11px; }
+.legend { margin-top: 10px; }
+.legend li { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start; color: var(--chalk-dim); line-height: 1.35; }
+.legend b { display: block; color: var(--chalk); font-weight: 600; }
+.chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+.chips > div { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.chip { font: 600 11px var(--body); background: var(--gold); color: #1d1503; border-radius: 999px; padding: 2px 8px; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--chalk-dim); }
 @media (prefers-reduced-motion: reduce) { .region { transition: none; } .region.target { animation: none; } }
 </style>
@@ -197,6 +214,12 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 
     <section class="card">
       <p class="label">Options</p>
+      <div class="seg mapseg" role="group" aria-label="Map">
+        <button data-map="usa">USA</button>
+        <button data-map="world">World</button>
+      </div>
+      <p class="hint" id="map-hint" hidden>Switching maps starts a new game. Click again to switch.</p>
+      <label class="toggle"><input type="checkbox" id="opt-powerups"><span><b>Power-ups</b>Gold tokens sit on open land. Claim the land to grab the power-up.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-sound"><span><b>Sound</b>Whistle, crowd and horn during games.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-capitals"><span><b>Capitals</b>A battle wins only the state fought over. Take a team's capital (the star) and you take everything.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-rebellions"><span><b>Rebellions</b>Each turn, a knocked-out team has a small chance to rise up and retake its home state.</span></label>
@@ -206,6 +229,15 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
       <p class="label">Hand land to a team</p>
       <select id="assign" aria-label="Team that gets the state you click"></select>
       <p class="hint">Pick a team, then click any state on the map to give it to them.</p>
+    </section>
+
+    <section class="card" id="powers-card">
+      <p class="label">Power-ups held</p>
+      <ul class="powers" id="powers"></ul>
+      <details>
+        <summary class="label">What each power-up does</summary>
+        <ul class="legend" id="power-legend"></ul>
+      </details>
     </section>
 
     <section class="card">

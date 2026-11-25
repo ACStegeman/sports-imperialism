@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { battleOdds, capitalsBattle, pickRebellion, recordBattle, recordTake, recordElimination, landAngles, strengthFromRecord, encodeOwners, decodeOwners, isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { assignHomes, placeTokens, applyBonuses, POWERS, battleOdds, capitalsBattle, pickRebellion, recordBattle, recordTake, recordElimination, landAngles, strengthFromRecord, encodeOwners, decodeOwners, isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
 import { TEAMS } from '../teams.js';
 
 const regions = [
@@ -262,4 +262,51 @@ test('record book: most wins counts every battle win, streak or not', () => {
   for (const [w, l] of [['cin', 'cle'], ['cin', 'pit'], ['bal', 'cin'], ['cin', 'bal'], ['kc', 'den'], ['cin', 'kc']]) r = recordBattle(r, { winner: w, loser: l, winnerOdds: 0.5, turn: 1 });
   assert.deepEqual(r.mostWins, { team: 'cin', n: 4 });
   assert.equal(r.wins.bal, 1);
+});
+
+test('rayTarget with crossWater: island teams can reach land across the ocean', () => {
+  const map = gridMap(['UU....FFF'], { U: 'UK', F: 'FR' });
+  const o = { UK: 'ne', FR: null };
+  assert.equal(rayTarget('ne', [0.5, 0.5], 0, map, o, [], { minGap: 2 }), null);           // USA rule: no land border
+  assert.equal(rayTarget('ne', [0.5, 0.5], 0, map, o, [], { minGap: 2, crossWater: true }), 'FR'); // World rule
+});
+test('assignHomes gives each team a different country from the eligible list', () => {
+  let seed = 3; const rng = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const ids = Array.from({ length: 50 }, (_, i) => `C${i}`);
+  const h = assignHomes(ids, ['a', 'b', 'c', 'd'], rng);
+  assert.deepEqual(Object.keys(h).sort(), ['a', 'b', 'c', 'd']);
+  assert.equal(new Set(Object.values(h)).size, 4);
+  assert.ok(Object.values(h).every(id => ids.includes(id)));
+});
+test('placeTokens puts power-ups only on empty land, one per region', () => {
+  let seed = 5; const rng = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const o = { A: 'x', B: null, C: null, D: 'y', E: null, F: null };
+  const t = placeTokens(o, {}, 3, rng);
+  assert.equal(Object.keys(t).length, 3);
+  assert.ok(Object.keys(t).every(id => o[id] === null));
+  assert.ok(Object.values(t).every(p => POWERS.some(q => q.id === p)));
+  // never more tokens than empty regions, and existing tokens stay put
+  const t2 = placeTokens(o, { B: 'hail' }, 10, rng);
+  assert.equal(Object.keys(t2).length, 4); assert.equal(t2.B, 'hail');
+});
+test('applyBonuses adds power-up boosts to win chances and keeps them between 5% and 95%', () => {
+  assert.equal(applyBonuses(0.5, 0, 0), 0.5);
+  assert.equal(Math.round(applyBonuses(0.5, 0.2, 0) * 100), 58);   // 0.7 / 1.2
+  assert.equal(Math.round(applyBonuses(0.5, 0, 0.35) * 100), 37);  // 0.5 / 1.35
+  assert.equal(applyBonuses(0.97, 0.2, 0), 0.95);
+  assert.equal(POWERS.length, 8);
+});
+test('enclosedClaims: a pocket touching the open sea is not surrounded (World map)', () => {
+  const o = { CO: 'car', PA: null, MX: null, BO: null, BR: 'car', PE: 'car' };
+  const adj = [['CO', 'PA'], ['PA', 'MX'], ['BO', 'BR'], ['BO', 'PE']];
+  assert.deepEqual(enclosedClaims(o, adj), { PA: 'car', MX: 'car', BO: 'car' });                 // USA-style rule
+  assert.deepEqual(enclosedClaims(o, adj, new Set(['PA', 'MX', 'CO', 'BR', 'PE'])), { BO: 'car' }); // coastal pocket stays open
+});
+test('placeTokens prefers empty land next to a team when told where that is', () => {
+  let seed = 9; const rng = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const o = { A: 'x', B: null, C: null, D: null, E: null, F: null, G: null };
+  const t = placeTokens(o, {}, 2, rng, new Set(['B', 'C']));
+  assert.deepEqual(Object.keys(t).sort(), ['B', 'C']);
+  const t2 = placeTokens(o, {}, 4, rng, new Set(['B', 'C']));   // frontier used up, then anywhere
+  assert.equal(Object.keys(t2).length, 4); assert.ok('B' in t2 && 'C' in t2);
 });

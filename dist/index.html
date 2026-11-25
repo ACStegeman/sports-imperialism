@@ -155,6 +155,23 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .linescore tbody th { text-align: left; font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .linescore tbody th img { width: 20px; height: 20px; background: var(--chalk); border-radius: 50%; padding: 2px; box-sizing: border-box; }
 .linescore .tot { font-weight: 800; color: var(--gold); }
+.mapseg { grid-template-columns: 1fr 1fr; }
+.token circle { fill: var(--gold); stroke: #1d1503; stroke-width: 1.4; }
+.token text { font: 700 10px var(--body); fill: #1d1503; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+.token { animation: bob 2.4s ease-in-out infinite; transform-box: fill-box; }
+@keyframes bob { 50% { opacity: .75 } }
+.powers, .legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.powers li { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; }
+.powers li.none { display: block; color: var(--chalk-dim); }
+.powers img { width: 22px; height: 22px; background: var(--chalk); border-radius: 50%; padding: 2px; box-sizing: border-box; }
+.glyphs { display: flex; gap: 4px; }
+.glyphs i, .legend i { font-style: normal; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--gold); color: #1d1503; font-weight: 700; font-size: 11px; }
+.legend { margin-top: 10px; }
+.legend li { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start; color: var(--chalk-dim); line-height: 1.35; }
+.legend b { display: block; color: var(--chalk); font-weight: 600; }
+.chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+.chips > div { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.chip { font: 600 11px var(--body); background: var(--gold); color: #1d1503; border-radius: 999px; padding: 2px 8px; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--chalk-dim); }
 @media (prefers-reduced-motion: reduce) { .region { transition: none; } .region.target { animation: none; } }
 </style>
@@ -197,6 +214,12 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 
     <section class="card">
       <p class="label">Options</p>
+      <div class="seg mapseg" role="group" aria-label="Map">
+        <button data-map="usa">USA</button>
+        <button data-map="world">World</button>
+      </div>
+      <p class="hint" id="map-hint" hidden>Switching maps starts a new game. Click again to switch.</p>
+      <label class="toggle"><input type="checkbox" id="opt-powerups"><span><b>Power-ups</b>Gold tokens sit on open land. Claim the land to grab the power-up.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-sound"><span><b>Sound</b>Whistle, crowd and horn during games.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-capitals"><span><b>Capitals</b>A battle wins only the state fought over. Take a team's capital (the star) and you take everything.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-rebellions"><span><b>Rebellions</b>Each turn, a knocked-out team has a small chance to rise up and retake its home state.</span></label>
@@ -206,6 +229,15 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
       <p class="label">Hand land to a team</p>
       <select id="assign" aria-label="Team that gets the state you click"></select>
       <p class="hint">Pick a team, then click any state on the map to give it to them.</p>
+    </section>
+
+    <section class="card" id="powers-card">
+      <p class="label">Power-ups held</p>
+      <ul class="powers" id="powers"></ul>
+      <details>
+        <summary class="label">What each power-up does</summary>
+        <ul class="legend" id="power-legend"></ul>
+      </details>
     </section>
 
     <section class="card">
@@ -386,7 +418,8 @@ const touchesTeam = (team, id, owners, adjacency) =>
 // Follow the arrow's line from (ox, oy). labelAt(x, y) -> region id, or null for water / off the map.
 // The first land not owned by the team is the target. Crossing open water is only allowed to land the
 // team already borders by land (Packers -> Lions). Nothing reached -> null, meaning respin.
-function rayTarget(team, [ox, oy], angleDeg, labelAt, owners, adjacency, { maxDist = 1500, minGap = 4, step = 1 } = {}) {
+// crossWater: true (World map) lets the arrow cross oceans to whatever land it reaches first.
+function rayTarget(team, [ox, oy], angleDeg, labelAt, owners, adjacency, { maxDist = 1500, minGap = 4, step = 1, crossWater = false } = {}) {
   const dx = Math.cos(angleDeg * Math.PI / 180), dy = Math.sin(angleDeg * Math.PI / 180);
   let gap = 0, crossedWater = false;
   for (let t = 0; t <= maxDist; t += step) {
@@ -394,14 +427,15 @@ function rayTarget(team, [ox, oy], angleDeg, labelAt, owners, adjacency, { maxDi
     if (!id) { gap += step; if (gap >= minGap) crossedWater = true; continue; }
     gap = 0;
     if (owners[id] === team) { crossedWater = false; continue; }
-    if (!crossedWater) return id;
+    if (!crossedWater || crossWater) return id;
     return touchesTeam(team, id, owners, adjacency) ? id : null;
   }
   return null;
 }
 
 // Empty pockets of land bordered by exactly one team go to that team. Returns { regionId: team }.
-function enclosedClaims(owners, adjacency) {
+// coastal (optional): regions on open water; a pocket that touches the sea isn't surrounded.
+function enclosedClaims(owners, adjacency, coastal = null) {
   const nb = {};
   for (const [a, b] of adjacency) { (nb[a] ||= []).push(b); (nb[b] ||= []).push(a); }
   const seen = new Set(), out = {};
@@ -417,7 +451,7 @@ function enclosedClaims(owners, adjacency) {
         else if (!seen.has(y)) { seen.add(y); stack.push(y); }
       }
     }
-    if (around.size === 1) { const t = [...around][0]; for (const p of pocket) out[p] = t; }
+    if (around.size === 1 && !(coastal && pocket.some(p => coastal.has(p)))) { const t = [...around][0]; for (const p of pocket) out[p] = t; }
   }
   return out;
 }
@@ -559,6 +593,44 @@ function landAngles(team, origin, labelAt, owners, adjacency, { step = 3, ...opt
   return out;
 }
 
+// World map: each team gets a different random country from the eligible list.
+function assignHomes(eligible, teams, rng = Math.random) {
+  const pool = [...eligible], out = {};
+  for (const t of teams) out[t] = pool.splice(Math.floor(rng() * pool.length), 1)[0];
+  return out;
+}
+
+// Power-ups.
+const POWERS = [
+  { id: 'hail', name: 'Hail Mary', glyph: '✦', desc: '+20% win chance in your next battle.' },
+  { id: 'blitz', name: 'Blitz', glyph: '»', desc: 'Take an extra turn right away.' },
+  { id: 'bye', name: 'Bye Week', glyph: '◆', desc: 'The next attack on you is blocked.' },
+  { id: 'draft', name: 'Draft Pick', glyph: '✚', desc: '+1.5 strength right away.' },
+  { id: 'onside', name: 'Onside Kick', glyph: '↗', desc: 'Steal one neighboring piece of land right away, no battle.' },
+  { id: 'flag', name: 'Challenge Flag', glyph: '⚑', desc: 'Lose your next battle? It gets replayed once.' },
+  { id: 'tag', name: 'Franchise Tag', glyph: '★', desc: 'Knocked out? Keep your home land and stay alive (once).' },
+  { id: 'home', name: 'Home Crowd', glyph: '⌂', desc: '+15% the next time you defend at home.' },
+];
+// Top up power-up tokens on empty land (one per region) until there are `count`.
+// prefer (optional): regions to fill first, such as empty land next to a team.
+function placeTokens(owners, tokens, count, rng = Math.random, prefer = null) {
+  const out = { ...tokens };
+  const open = Object.keys(owners).filter(id => !owners[id] && !(id in out));
+  const near = prefer ? open.filter(id => prefer.has(id)) : [];
+  while (Object.keys(out).length < count && open.length) {
+    const from = near.length ? near : open;
+    const id = from.splice(Math.floor(rng() * from.length), 1)[0];
+    if (from === near) open.splice(open.indexOf(id), 1);
+    out[id] = POWERS[Math.floor(rng() * POWERS.length)].id;
+  }
+  return out;
+}
+// Attacker's win chance after power-up boosts: each side's chance plus its boost, then shared out again.
+function applyBonuses(pa, bonusA, bonusD) {
+  const a = pa + bonusA, d = (1 - pa) + bonusD;
+  return Math.min(0.95, Math.max(0.05, a / (a + d)));
+}
+
 // Browser UI. Uses TEAMS, TEAM_BY_ABBR, logoUrl (teams.js) and game.js functions, concatenated by build.mjs.
 const W = 975, H = 610, BLANK = 'var(--blank)', STORE = 'nflImperialism.v1';
 const NAME_TO_CODE = { Alabama:'AL', Alaska:'AK', Arizona:'AZ', Arkansas:'AR', California:'CA', Colorado:'CO', Connecticut:'CT', Delaware:'DE', 'District of Columbia':'DC', Florida:'FL', Georgia:'GA', Hawaii:'HI', Idaho:'ID', Illinois:'IL', Indiana:'IN', Iowa:'IA', Kansas:'KS', Kentucky:'KY', Louisiana:'LA', Maine:'ME', Maryland:'MD', Massachusetts:'MA', Michigan:'MI', Minnesota:'MN', Mississippi:'MS', Missouri:'MO', Montana:'MT', Nebraska:'NE', Nevada:'NV', 'New Hampshire':'NH', 'New Jersey':'NJ', 'New Mexico':'NM', 'New York':'NY', 'North Carolina':'NC', 'North Dakota':'ND', Ohio:'OH', Oklahoma:'OK', Oregon:'OR', Pennsylvania:'PA', 'Rhode Island':'RI', 'South Carolina':'SC', 'South Dakota':'SD', Tennessee:'TN', Texas:'TX', Utah:'UT', Vermont:'VT', Virginia:'VA', Washington:'WA', 'West Virginia':'WV', Wisconsin:'WI', Wyoming:'WY' };
@@ -569,7 +641,8 @@ const $ = id => document.getElementById(id);
 const SVGNS = 'http://www.w3.org/2000/svg';
 const el = (tag, attrs = {}, parent) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
 const teamName = a => TEAM_BY_ABBR[a].name.split(' ').slice(-1)[0];
-const regionName = r => r.clip ? `${r.state === 'DC' ? 'DC' : CODE_TO_NAME[r.state]} (${teamName(r.team)} part)` : CODE_TO_NAME[r.state];
+let MAP = 'usa';
+const regionName = r => r.name ? r.name : r.clip ? `${r.state === 'DC' ? 'DC' : CODE_TO_NAME[r.state]} (${teamName(r.team)} part)` : CODE_TO_NAME[r.state];
 
 let REGIONS = [], BY_ID = {}, CENT = {}, STATE_OF = {};
 const LABEL = new Int16Array(W * H);
@@ -580,6 +653,11 @@ let CAPITALS = {};            // team -> its home region id
 let autoplay = false, autoSpeed = 2, replaying = false;
 const SPEED = () => autoplay ? autoSpeed : 1;
 const opt = k => !!(state && state.options && state.options[k]);
+const TOKENS = () => MAP === 'world' ? 16 : 8;   // power-up tokens on the map
+const UNIT = n => MAP === 'world' ? (n === 1 ? 'country' : 'countries') : (n === 1 ? 'state' : 'states');
+const stateLabel = code => MAP === 'world' ? BY_ID[code].name : CODE_TO_NAME[code];
+const usaKey = g => SKIP.has(g.properties.name) ? null : NAME_TO_CODE[g.properties.name];
+const worldKey = g => g.properties.name === 'Antarctica' ? null : 'W-' + g.properties.name.replace(/[^A-Za-z]+/g, '');
 
 // ---------- geometry ----------
 const GRID = new Uint8Array(W * H);
@@ -601,7 +679,7 @@ function anchor(points, fallback) {
   return best;
 }
 
-function buildRegions(topo) {
+function buildUSA(topo) {
   const all = topojson.feature(topo, topo.objects.states);
   const fc = { type: 'FeatureCollection', features: all.features.filter(f => !SKIP.has(f.properties.name)) };
   const proj = d3.geoAlbersUsa().fitExtent([[8, 8], [W - 8, H - 8]], fc);
@@ -631,11 +709,30 @@ function buildRegions(topo) {
       teams.forEach((t, i) => out.push({ id: `${code}-${t.abbr}`, state: code, team: t.abbr, d: vor.renderCell(i), clip: code, stateD: d, at: anchor(buckets[i], seeds[i]), area: buckets[i].length * step * step, pts: buckets[i] }));
     }
   }
-  return { regions: out, path, fc, topo, segments: buildSegments(topo, proj, out, ctx) };
+  return { regions: out, path, fc, topo, object: topo.objects.states, keyOf: usaKey, segments: buildSegments(topo, topo.objects.states, usaKey, proj, out, ctx) };
+}
+
+function buildWorld(topo) {
+  const all = topojson.feature(topo, topo.objects.countries);
+  const fc = { type: 'FeatureCollection', features: all.features.filter(f => worldKey(f)) };
+  const proj = d3.geoNaturalEarth1().fitExtent([[8, 8], [W - 8, H - 8]], fc);
+  const path = d3.geoPath(proj);
+  const ctx = document.createElement('canvas').getContext('2d');
+  const out = [];
+  for (const f of fc.features) {
+    const d = path(f);
+    if (!d) continue;
+    const p2 = new Path2D(d);
+    const [[x0, y0], [x1, y1]] = path.bounds(f);
+    const step = (x1 - x0) * (y1 - y0) < 900 ? 1 : 2, pts = [];
+    for (let y = Math.floor(y0); y <= y1; y += step) for (let x = Math.floor(x0); x <= x1; x += step) if (ctx.isPointInPath(p2, x, y)) pts.push([x, y]);
+    out.push({ id: worldKey(f), state: worldKey(f), name: f.properties.name, team: null, d, clip: null, at: anchor(pts, path.centroid(f)), area: path.area(f), pts });
+  }
+  return { regions: out, path, fc, topo, object: topo.objects.countries, keyOf: worldKey, segments: buildSegments(topo, topo.objects.countries, worldKey, proj, out, ctx) };
 }
 
 // Every piece of border, tagged with the region on each side, so lines can vanish inside one team's land.
-function buildSegments(topo, proj, regions, ctx) {
+function buildSegments(topo, object, keyOf, proj, regions, ctx) {
   const parts = {}; // state code -> [{id, xy}] for split states
   for (const r of regions) if (r.clip) {
     const t = TEAM_BY_ABBR[r.team];
@@ -650,14 +747,16 @@ function buildSegments(topo, proj, regions, ctx) {
   };
   // which states use each arc
   const users = new Map();
-  for (const g of topo.objects.states.geometries) {
-    const code = NAME_TO_CODE[g.properties.name];
-    if (!code || SKIP.has(g.properties.name)) continue;
+  for (const g of object.geometries) {
+    const code = keyOf(g);
+    if (!code) continue;
     const walk = a => Array.isArray(a) ? a.forEach(walk) : (k => { const set = users.get(k) || new Set(); set.add(code); users.set(k, set); })(a < 0 ? ~a : a);
     walk(g.arcs);
   }
   const segs = [];
+  segs.coastal = new Set();
   for (const [arc, set] of users) {
+    if (set.size === 1) segs.coastal.add([...set][0]); // coastline: this region touches open water
     if (set.size !== 2) continue; // coastline / country edge: drawn by the outline
     const [sa, sb] = [...set];
     const pts = topojson.feature(topo, { type: 'LineString', arcs: [arc] }).geometry.coordinates.map(c => proj(c));
@@ -689,10 +788,11 @@ function buildSegments(topo, proj, regions, ctx) {
 }
 
 // ---------- map render ----------
-let gRegions, gLogos, gArrow, gAim, gBorders, SEGS = [], ADJ = [];
+let gRegions, gLogos, gArrow, gAim, gBorders, SEGS = [], ADJ = [], COASTAL = new Set();
 const ANCHOR_CACHE = new Map();
-function drawMap({ regions, path, topo, segments }) {
+function drawMap({ regions, path, topo, segments, object, keyOf }) {
   SEGS = segments;
+  COASTAL = segments.coastal;
   const pairs = new Set();
   for (const g of segments) pairs.add([g.a, g.b].sort().join('|'));
   ADJ = [...pairs].map(k => k.split('|'));
@@ -713,7 +813,7 @@ function drawMap({ regions, path, topo, segments }) {
     p.addEventListener('click', () => onRegionClick(r.id));
   }
   gBorders = el('path', { class: 'borders' }, svg);
-  el('path', { d: path(topojson.mesh(topo, topo.objects.states, (a, b) => a === b && !SKIP.has(a.properties.name))), class: 'outline' }, svg);
+  el('path', { d: path(topojson.mesh(topo, object, (a, b) => a === b && keyOf(a))), class: 'outline' }, svg);
   gLogos = el('g', {}, svg);
   gAim = el('g', {}, svg);
   gArrow = el('g', {}, svg);
@@ -754,12 +854,21 @@ function paint(owners = state.owners) {
   const logoSpots = [];
   for (const t of territories(owners, ADJ)) {
     const spot = territorySpot(t);
-    if (spot.area < 120) continue;
-    const s = Math.max(14, Math.min(110, Math.sqrt(spot.area) * 0.42)), color = TEAM_BY_ABBR[t.team].color;
+    if (spot.area < (MAP === 'world' ? 12 : 120)) continue;
+    const s = Math.max(MAP === 'world' ? 10 : 14, Math.min(110, Math.sqrt(spot.area) * 0.42)), color = TEAM_BY_ABBR[t.team].color;
     el('circle', { cx: spot.at[0], cy: spot.at[1], r: s * 0.5, fill: '#eef2ea', 'fill-opacity': 0.92, stroke: color, 'stroke-width': 1.5, class: 'logo' }, gLogos);
     const li = s * 0.78;
     el('image', { href: logoUrl(t.team), x: spot.at[0] - li / 2, y: spot.at[1] - li / 2, width: li, height: li, class: 'logo' }, gLogos);
     logoSpots.push({ x: spot.at[0], y: spot.at[1], r: s / 2 });
+  }
+  if (opt('powerups')) {
+    for (const [id, pid] of Object.entries(state.tokens || {})) {
+      const r = BY_ID[id], P = POWERS.find(p => p.id === pid); if (!r || !P) continue;
+      const g = el('g', { class: 'token', transform: `translate(${r.at[0].toFixed(1)} ${r.at[1].toFixed(1)}) scale(${MAP === 'world' ? 1.05 : 1.5})` }, gLogos);
+      el('circle', { r: 8.5 }, g);
+      el('text', { y: 0.5 }, g).textContent = P.glyph;
+      el('title', {}, g).textContent = `${P.name}: ${P.desc}`;
+    }
   }
   if (opt('capitals')) {
     for (const [team, cap] of Object.entries(CAPITALS)) {
@@ -773,11 +882,12 @@ function paint(owners = state.owners) {
     }
   }
   drawWheel();
+  drawPowers();
   drawStandings();
   drawLog();
   const alive = aliveTeams(owners).length;
   const blanks = Object.values(owners).filter(v => !v).length;
-  $('tally').textContent = `${alive} ${alive === 1 ? 'team' : 'teams'} left · ${blanks} open ${blanks === 1 ? 'state' : 'states'} · turn ${state.turn}`;
+  $('tally').textContent = `${alive} ${alive === 1 ? 'team' : 'teams'} left · ${blanks} open ${UNIT(blanks)} · turn ${state.turn}`;
 }
 
 // ---------- wheel ----------
@@ -842,17 +952,16 @@ async function spinArrow() {
   const a = turn.attacker, misses = turn.misses || 0;
   let final = Math.random() * 360;
   if (misses >= 2) { // two misses in a row: this spin can only land on land
-    const ok = landAngles(a, teamSpot(a), labelAt, state.owners, ADJ, { step: 2 });
-    if (ok.length) final = ok[Math.floor(Math.random() * ok.length)] + Math.random() * 1.5;
+    const ok = landAngles(a, teamSpot(a), labelAt, state.owners, ADJ, { step: 2, crossWater: MAP === 'world' });
+    if (!ok.length) { turn = { step: 'done', attacker: a, msg: `The <b>${TEAM_BY_ABBR[a].name}</b> have nothing they can reach. Turn skipped.` }; busy = false; render(); return; }
+    final = ok[Math.floor(Math.random() * ok.length)] + Math.random() * 1.5;
   }
   const target = arrowRot + 720 + mod(final - arrowRot, 360);
   await animate(arrowRot, target, 2600 / SPEED(), r => drawArrow(a, r));
   arrowRot = mod(target, 360);
-  const tid = rayTarget(a, teamSpot(a), arrowRot, labelAt, state.owners, ADJ);
+  const tid = rayTarget(a, teamSpot(a), arrowRot, labelAt, state.owners, ADJ, { crossWater: MAP === 'world' });
   if (!tid) {
     // pointed at water or nobody it borders: respin automatically
-    const hasNeighbor = ADJ.some(([p, q]) => (state.owners[p] === a && state.owners[q] !== a) || (state.owners[q] === a && state.owners[p] !== a));
-    if (!hasNeighbor) { turn = { step: 'done', attacker: a, msg: `The <b>${TEAM_BY_ABBR[a].name}</b> have no land to attack. Turn skipped.` }; busy = false; render(); return; }
     turn = { step: 'arrow', attacker: a, missed: true, misses: misses + 1 };
     render();
     await sleep(800 / SPEED());
@@ -860,10 +969,15 @@ async function spinArrow() {
   }
   showAim(a, tid);
   const defender = state.owners[tid];
-  if (!defender) {
+  if (defender && usePower(defender, 'bye')) {
+    addLog(`<b>${teamName(defender)}</b> were on a Bye Week. The ${teamName(a)} attack is blocked`);
+    turn = { step: 'done', attacker: a, msg: `<b>Bye Week!</b> The <b>${TEAM_BY_ABBR[defender].name}</b> were resting, so the ${teamName(a)} attack on ${regionName(BY_ID[tid])} is blocked.` };
+    nextTurnCount(); commit();
+  } else if (!defender) {
     state.owners = claim(state.owners, a, tid);
     addLog(`<b>${teamName(a)}</b> claim open land in ${regionName(BY_ID[tid])}`);
-    turn = { step: 'done', attacker: a, msg: `The <b>${TEAM_BY_ABBR[a].name}</b> march into ${regionName(BY_ID[tid])}. Nobody was home.` + afterMove() };
+    const got = collect(a, [tid]);
+    turn = { step: 'done', attacker: a, msg: `The <b>${TEAM_BY_ABBR[a].name}</b> march into ${regionName(BY_ID[tid])}. Nobody was home.` + got + afterMove() };
     nextTurnCount(); commit();
   } else {
     turn = { step: 'battle', attacker: a, defender, region: tid };
@@ -883,16 +997,34 @@ function clearAim() { showAim(null, null); drawArrow(null); }
 
 // ---------- battle ----------
 const odds = (a, b) => battleOdds(a, b, state.mode, state.strengths);
+// Win chances for a battle with power-ups: Hail Mary (+20%) for either side, Home Crowd (+15%) for the defender.
+function battleSetup(a, b) {
+  const [pa] = odds(a, b);
+  if (state.mode === 'pick' || !opt('powerups')) return { p: pa, uses: [], notes: { [a]: [], [b]: [] } };
+  let ba = 0, bd = 0; const uses = [], notes = { [a]: [], [b]: [] };
+  if (hasPower(a, 'hail')) { ba += 0.2; uses.push([a, 'hail']); notes[a].push('Hail Mary +20%'); }
+  if (hasPower(b, 'hail')) { bd += 0.2; uses.push([b, 'hail']); notes[b].push('Hail Mary +20%'); }
+  if (hasPower(b, 'home')) { bd += 0.15; uses.push([b, 'home']); notes[b].push('Home Crowd +15%'); }
+  return { p: applyBonuses(pa, ba, bd), uses, notes };
+}
 async function fight() {
   busy = true; render();
   const { attacker: a, defender: b } = turn;
-  const winner = resolveBattle(a, b, state.mode, state.strengths);
+  const setup = battleSetup(a, b);
+  for (const [t, id] of setup.uses) usePower(t, id);
+  let winner = Math.random() < setup.p ? a : b, extra = '';
+  const flagTeam = winner === a ? b : a;
+  if (opt('powerups') && usePower(flagTeam, 'flag')) {
+    const again = Math.random() < setup.p ? a : b;
+    extra = again === flagTeam ? ` <b>Challenge Flag!</b> The ${teamName(flagTeam)} challenged the result and won the replay.` : ` The ${teamName(flagTeam)} threw a <b>Challenge Flag</b>, but the result stood.`;
+    winner = again;
+  }
   const loser = winner === a ? b : a;
-  const upset = isUpset(winner, a, b, state.mode, state.strengths);
-  const winnerOdds = odds(a, b)[winner === a ? 0 : 1];
+  const winnerOdds = winner === a ? setup.p : 1 - setup.p;
+  const upset = state.mode === 'weighted' && winnerOdds < 0.35;
   await playGame(a, b, simulateGame(winner, loser), upset);
   busy = false;
-  finishBattle(winner, upset, winnerOdds);
+  finishBattle(winner, upset, winnerOdds, extra);
 }
 
 // ---------- simulated game popup ----------
@@ -1070,8 +1202,10 @@ function playGame(a, b, game, upset = false) {
     raf = requestAnimationFrame(tick);
   });
 }
-function finishBattle(winner, upset = false, winnerOdds = null) {
+function finishBattle(winner, upset = false, winnerOdds = null, extra = '') {
   const { attacker: a, defender: b, region } = turn, loser = winner === a ? b : a;
+  const prev = { ...state.owners };
+  let capTaken = null;
   const up = upset ? '<b class="up">UPSET!</b> ' : '';
   let story;
   const loserStates = stateCounts(state.owners, STATE_OF)[loser] || 0;
@@ -1079,18 +1213,28 @@ function finishBattle(winner, upset = false, winnerOdds = null) {
   if (opt('capitals')) {
     const r = capitalsBattle(state.owners, winner, loser, a, region, CAPITALS, ADJ, CENT);
     const place = regionName(BY_ID[r.taken]);
-    if (!r.capitalFell) takenStates = 1;
+    if (!r.capitalFell) takenStates = 1; else capTaken = r.taken;
     state.owners = r.owners;
     if (r.capitalFell) story = `The <b>${TEAM_BY_ABBR[winner].name}</b> capture the ${teamName(loser)}' capital in ${place} and take all their land. The ${teamName(loser)} are out.`;
     else if (winner === a) story = `The <b>${TEAM_BY_ABBR[winner].name}</b> win and take ${place} from the ${teamName(loser)}.`;
     else story = `The <b>${TEAM_BY_ABBR[winner].name}</b> hold at home and take ${place} from the ${teamName(loser)}.`;
     if (!r.capitalFell && !aliveTeams(state.owners).includes(loser)) story += ` The ${teamName(loser)} are out.`;
   } else {
-    const names = [...new Set(Object.keys(state.owners).filter(id => state.owners[id] === loser).map(id => STATE_OF[id] === 'DC' ? 'MD' : STATE_OF[id]))].map(c => CODE_TO_NAME[c]);
-    const where = names.length <= 3 ? listJoin(names) : `${names.length} states`;
+    const names = [...new Set(Object.keys(state.owners).filter(id => state.owners[id] === loser).map(id => STATE_OF[id] === 'DC' ? 'MD' : STATE_OF[id]))].map(stateLabel);
+    const where = names.length <= 3 ? listJoin(names) : `${names.length} ${UNIT(names.length)}`;
     state.owners = conquer(state.owners, winner, loser);
     story = `The <b>${TEAM_BY_ABBR[winner].name}</b> win and take over the ${teamName(loser)}' land in ${where}. The ${teamName(loser)} are out.`;
   }
+  if (opt('powerups') && !aliveTeams(state.owners).includes(loser) && usePower(loser, 'tag')) {
+    const home = CAPITALS[loser];
+    const mine = Object.keys(prev).filter(id => prev[id] === loser && id !== capTaken);
+    const keep = mine.includes(home) ? home : mine[0];
+    if (keep) {
+      state.owners = claim(state.owners, loser, keep);
+      story = story.replace(/ The [A-Za-z0-9]+ are out\./, '') + ` <b>Franchise Tag!</b> The ${teamName(loser)} hang on to ${regionName(BY_ID[keep])} and stay alive.`;
+    }
+  }
+  story += extra;
   const before = state.strengths[winner];
   state.strengths = boostWinner(state.strengths, winner, loser);
   const grew = state.strengths[winner] > before ? ` Strength ${before} → ${state.strengths[winner]} (beat ${String(state.strengths[loser]).startsWith('8') ? 'an' : 'a'} ${state.strengths[loser]}).` : '';
@@ -1114,6 +1258,12 @@ function commit() {
 
 function nextTurn() {
   turn = { step: 'wheel' }; clearAim();
+  if (opt('powerups')) {
+    const n = Object.keys(state.tokens || {}).length;
+    if (n < TOKENS()) state.tokens = placeTokens(state.owners, state.tokens || {}, n + 1, Math.random, frontier(state.owners));
+    if (state.bonusTurn && aliveTeams(state.owners).includes(state.bonusTurn)) turn = { step: 'arrow', attacker: state.bonusTurn, bonus: true };
+    state.bonusTurn = null;
+  }
   if (opt('rebellions')) {
     const r = pickRebellion(state.owners, TEAMS.map(t => t.abbr), CAPITALS, Math.random, 0.08);
     if (r) {
@@ -1136,13 +1286,13 @@ function teamCard(abbr, pct, extra = '', tag = '') {
 }
 function render() {
   const st = $('status'), mu = $('matchup'), ac = $('actions');
-  for (const b of document.querySelectorAll('.seg button')) b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode));
+  for (const b of document.querySelectorAll('.seg:not(.mapseg) button')) b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode));
   mu.innerHTML = ''; ac.innerHTML = '';
   const btn = (label, fn, cls = '') => { const b = document.createElement('button'); b.className = `btn ${cls}`; b.textContent = label; b.disabled = busy || autoplay || replaying; b.onclick = fn; ac.appendChild(b); return b; };
   const champ = champion(state.owners);
   if (champ) {
     const t = TEAM_BY_ABBR[champ];
-    st.innerHTML = `<b>The ${t.name} rule America!</b> Last team standing after ${state.turn} ${state.turn === 1 ? 'turn' : 'turns'}.`;
+    st.innerHTML = `<b>The ${t.name} rule ${MAP === 'world' ? 'the world' : 'America'}!</b> Last team standing after ${state.turn} ${state.turn === 1 ? 'turn' : 'turns'}.`;
     mu.innerHTML = `<div class="matchup" style="grid-template-columns:1fr">${teamCard(champ, null, 'win')}</div><ul class="records final">${recordLines().join('')}</ul>`;
     btn('Reset map', doReset);
   } else if (turn.step === 'wheel') {
@@ -1150,13 +1300,14 @@ function render() {
     btn('Spin the wheel', spinWheel);
   } else if (turn.step === 'arrow') {
     st.innerHTML = turn.missed
-      ? `No land border that way for the <b>${TEAM_BY_ABBR[turn.attacker].name}</b>. Respinning…`
-      : busy ? 'Aiming…' : `The <b>${TEAM_BY_ABBR[turn.attacker].name}</b> are on the move. Spin the arrow to pick a direction.`;
+      ? `${MAP === 'world' ? 'Nothing but ocean' : 'No land border'} that way for the <b>${TEAM_BY_ABBR[turn.attacker].name}</b>. Respinning…`
+      : busy ? 'Aiming…' : turn.bonus ? `<b>Blitz!</b> The <b>${TEAM_BY_ABBR[turn.attacker].name}</b> attack again. Spin the arrow.` : `The <b>${TEAM_BY_ABBR[turn.attacker].name}</b> are on the move. Spin the arrow to pick a direction.`;
     btn('Spin the arrow', spinArrow);
   } else if (turn.step === 'battle') {
-    const { attacker: a, defender: b } = turn, [pa, pb] = odds(a, b), showPct = state.mode !== 'pick';
+    const { attacker: a, defender: b } = turn, setup = battleSetup(a, b), pa = setup.p, pb = 1 - setup.p, showPct = state.mode !== 'pick';
     st.innerHTML = `The arrow points at ${regionName(BY_ID[turn.region])}. Battle!`;
-    mu.innerHTML = `<div class="matchup">${teamCard(a, showPct ? pa : null, '', 'Away')}<span class="vs">@</span>${teamCard(b, showPct ? pb : null, '', 'Home')}</div>`;
+    const chips = t => [...setup.notes[t], ...((state.powers || {})[t] || []).filter(p => p === 'flag' || p === 'tag' || p === 'bye').map(p => POWERS.find(q => q.id === p).name)].map(n => `<span class="chip">${n}</span>`).join('');
+    mu.innerHTML = `<div class="matchup">${teamCard(a, showPct ? pa : null, '', 'Away')}<span class="vs">@</span>${teamCard(b, showPct ? pb : null, '', 'Home')}</div><div class="chips"><div>${chips(a)}</div><div>${chips(b)}</div></div>`;
     if (state.mode === 'pick') {
       btn(`${teamName(a)} win`, () => finishBattle(a));
       btn(`${teamName(b)} win`, () => finishBattle(b));
@@ -1176,12 +1327,13 @@ function afterMove() {
   let msg = '';
   // last team standing: the celebration fills the rest of the map, so skip the surround rule
   if (champion(state.owners)) { pendingChamp = champion(state.owners); return msg; }
-  const enclosed = enclosedClaims(state.owners, ADJ);
+  const enclosed = enclosedClaims(state.owners, ADJ, MAP === 'world' ? COASTAL : null);
   const byTeam = {};
-  for (const [id, t] of Object.entries(enclosed)) { state.owners = claim(state.owners, t, id); (byTeam[t] ||= []).push(regionName(BY_ID[id])); }
+  const idsBy = {};
+  for (const [id, t] of Object.entries(enclosed)) { state.owners = claim(state.owners, t, id); (byTeam[t] ||= []).push(regionName(BY_ID[id])); (idsBy[t] ||= []).push(id); }
   for (const [t, names] of Object.entries(byTeam)) {
     addLog(`<b>${teamName(t)}</b> surround and take ${listJoin(names)}`);
-    msg += ` The ${teamName(t)} surround ${listJoin(names)} and take ${names.length === 1 ? 'it' : 'them'} too.`;
+    msg += ` The ${teamName(t)} surround ${listJoin(names)} and take ${names.length === 1 ? 'it' : 'them'} too.` + collect(t, idsBy[t]);
   }
   if (champion(state.owners)) pendingChamp = champion(state.owners);
   return msg;
@@ -1244,7 +1396,7 @@ function nextTurnCount() { state.turn++; }
 function drawStandings() {
   const counts = stateCounts(state.owners, STATE_OF);
   const top = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 6);
-  $('standings').innerHTML = top.map(([a, n]) => `<li><img src="${logoUrl(a)}" alt=""><span>${TEAM_BY_ABBR[a].name}</span><span class="n">${n} ${n === 1 ? 'state' : 'states'}</span></li>`).join('');
+  $('standings').innerHTML = top.map(([a, n]) => `<li><img src="${logoUrl(a)}" alt=""><span>${TEAM_BY_ABBR[a].name}</span><span class="n">${n} ${UNIT(n)}</span></li>`).join('');
 }
 function addLog(html, label = `Turn ${state.turn + 1}`) { state.log.unshift(`${label}: ${html}`); state.log = state.log.slice(0, 60); }
 function drawLog() { $('log').innerHTML = state.log.length ? state.log.map(l => `<li>${l}</li>`).join('') : '<li>No moves yet.</li>'; }
@@ -1296,7 +1448,8 @@ function onRegionClick(id) {
 }
 
 // ---------- state ----------
-const DEFAULT_OPTIONS = { sound: false, capitals: false, rebellions: false, useRecords: false };
+const DEFAULT_OPTIONS = { sound: false, capitals: false, rebellions: false, useRecords: false, powerups: true };
+const usaHomes = () => Object.fromEntries(TEAMS.map(t => [t.abbr, REGIONS.find(r => r.team === t.abbr && r.state !== 'DC').id]));
 function startStrengths(options, wl) {
   return Object.fromEntries(TEAMS.map(t => {
     const fromWL = options.useRecords && wl[t.abbr] ? strengthFromRecord(...wl[t.abbr]) : null;
@@ -1305,15 +1458,30 @@ function startStrengths(options, wl) {
 }
 function fresh(keep = {}) {
   const options = { ...DEFAULT_OPTIONS, ...(keep.options || {}) }, wl = keep.wl || {};
-  const owners = initialOwners(REGIONS);
-  return { owners, strengths: startStrengths(options, wl), mode: keep.mode || 'pick', log: [], turn: 0, options, wl, records: {},
+  let owners, home;
+  if (MAP === 'world') {
+    const eligible = REGIONS.filter(r => r.area >= 350 && r.pts.length).map(r => r.id);
+    home = assignHomes(eligible, TEAMS.map(t => t.abbr));
+    owners = Object.fromEntries(REGIONS.map(r => [r.id, null]));
+    for (const [t, id] of Object.entries(home)) owners[id] = t;
+  } else {
+    owners = initialOwners(REGIONS);
+    home = usaHomes();
+  }
+  const tokens = options.powerups ? placeTokens(owners, {}, TOKENS(), Math.random, frontier(owners)) : {};
+  return { map: MAP, owners, home, tokens, powers: {}, bonusTurn: null, strengths: startStrengths(options, wl), mode: keep.mode || 'pick', log: [], turn: 0, options, wl, records: {},
     history: [{ t: 0, c: encodeOwners(owners, REGIONS.map(r => r.id), TEAMS.map(t => t.abbr)) }] };
 }
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE));
     // saved games from older versions may have extra regions (Alaska, Hawaii): keep only today's regions
-    if (s && s.owners && REGIONS.every(r => r.id in s.owners)) { const f = fresh(s); return { ...f, ...s, options: f.options, wl: f.wl, records: s.records || {}, history: s.history && s.history.length ? s.history : f.history, owners: Object.fromEntries(REGIONS.map(r => [r.id, s.owners[r.id]])) }; }
+    if (s && s.owners && (s.map || 'usa') === MAP && REGIONS.every(r => r.id in s.owners)) {
+      const f = fresh(s);
+      const owners = Object.fromEntries(REGIONS.map(r => [r.id, s.owners[r.id]]));
+      return { ...f, ...s, map: MAP, options: f.options, wl: f.wl, records: s.records || {}, history: s.history && s.history.length ? s.history : f.history, owners,
+        home: s.home || f.home, tokens: s.tokens || (f.options.powerups ? placeTokens(owners, {}, TOKENS(), Math.random, frontier(owners)) : {}), powers: s.powers || {} };
+    }
   } catch {}
   return fresh();
 }
@@ -1322,16 +1490,70 @@ function save() { try { localStorage.setItem(STORE, JSON.stringify(state)); } ca
 let resetArmed = null;
 function doReset() {
   stopAuto(); exitReplay(false);
-  state = fresh(state); turn = { step: 'wheel' }; wheelRot = 0; arrowRot = 0;
+  state = fresh(state); CAPITALS = state.home; turn = { step: 'wheel' }; wheelRot = 0; arrowRot = 0;
   clearAim(); save(); drawStrengths(); paint(); render(); drawReplay(); drawRecords();
+}
+
+// ---------- power-ups ----------
+// Empty land that touches some team's territory: where new power-up tokens go first.
+function frontier(owners) {
+  const f = new Set();
+  for (const [p, q] of ADJ) { if (owners[p] && !owners[q]) f.add(q); if (owners[q] && !owners[p]) f.add(p); }
+  return f;
+}
+const hasPower = (team, id) => ((state.powers || {})[team] || []).includes(id);
+function usePower(team, id) {
+  const list = (state.powers || {})[team] || [], k = list.indexOf(id);
+  if (k < 0) return false;
+  list.splice(k, 1); return true;
+}
+// A team picks up any tokens on land it just took. Instant power-ups happen now; the rest are held.
+function collect(team, ids) {
+  if (!opt('powerups')) return '';
+  let msg = '';
+  for (const id of ids) {
+    const pid = (state.tokens || {})[id]; if (!pid) continue;
+    delete state.tokens[id];
+    const P = POWERS.find(p => p.id === pid);
+    addLog(`<b>${teamName(team)}</b> pick up <b class="up">${P.name}</b> in ${regionName(BY_ID[id])}`);
+    msg += ` They pick up <b>${P.name}</b>: ${P.desc}`;
+    if (pid === 'draft') { state.strengths[team] = Math.min(10, Math.round((state.strengths[team] + 1.5) * 10) / 10); syncStrengthInputs(); }
+    else if (pid === 'blitz') state.bonusTurn = team;
+    else if (pid === 'onside') msg += onside(team);
+    else ((state.powers ||= {})[team] ||= []).push(pid);
+  }
+  return msg;
+}
+function onside(team) {
+  const near = new Set();
+  for (const [p, q] of ADJ) {
+    if (state.owners[p] === team && state.owners[q] !== team) near.add(q);
+    if (state.owners[q] === team && state.owners[p] !== team) near.add(p);
+  }
+  // never an instant knockout: skip a team's last piece of land and (with capitals) any capital
+  const counts = {};
+  for (const o of Object.values(state.owners)) if (o) counts[o] = (counts[o] || 0) + 1;
+  const pool = [...near].filter(id => { const o = state.owners[id]; return !o || (counts[o] > 1 && !(opt('capitals') && CAPITALS[o] === id)); });
+  if (!pool.length) return ' But there was nothing nearby to steal.';
+  const id = pool[Math.floor(Math.random() * pool.length)], from = state.owners[id];
+  state.owners = claim(state.owners, team, id);
+  addLog(`<b>${teamName(team)}</b> recover an onside kick and take ${regionName(BY_ID[id])}${from ? ` from the ${teamName(from)}` : ''}`);
+  return ` Onside kick recovered: they take ${regionName(BY_ID[id])}${from ? ` from the ${teamName(from)}` : ''}.` + collect(team, [id]);
+}
+function drawPowers() {
+  const box = $('powers'); if (!box || !state) return;
+  $('powers-card').hidden = !opt('powerups');
+  const held = Object.entries(state.powers || {}).filter(([t, l]) => l.length && aliveTeams(state.owners).includes(t));
+  box.innerHTML = (held.length ? held.map(([t, l]) => `<li><img src="${logoUrl(t)}" alt=""><span>${TEAM_BY_ABBR[t].name}</span><span class="glyphs">${l.map(p => { const P = POWERS.find(q => q.id === p); return `<i title="${P.name}: ${P.desc}">${P.glyph}</i>`; }).join('')}</span></li>`).join('') : '<li class="none">Nobody is holding a power-up yet.</li>');
+  $('power-legend').innerHTML = POWERS.map(P => `<li><i>${P.glyph}</i><span><b>${P.name}</b>${P.desc}</span></li>`).join('');
 }
 
 // ---------- options ----------
 function wireOptions() {
-  for (const k of ['sound', 'capitals', 'rebellions']) {
+  for (const k of ['sound', 'capitals', 'rebellions', 'powerups']) {
     const box = $(`opt-${k}`);
     box.checked = opt(k);
-    box.onchange = () => { state.options[k] = box.checked; if (k === 'sound' && box.checked) { ac(); sfx.touchdown(); } save(); paint(); render(); };
+    box.onchange = () => { state.options[k] = box.checked; if (k === 'sound' && box.checked) { ac(); sfx.touchdown(); } if (k === 'powerups' && box.checked && !Object.keys(state.tokens || {}).length) state.tokens = placeTokens(state.owners, {}, TOKENS(), Math.random, frontier(state.owners)); save(); paint(); render(); };
   }
   $('opt-records').onchange = e => {
     state.options.useRecords = e.target.checked;
@@ -1509,28 +1731,59 @@ function recordLines() {
     `<li><span>Biggest upset</span><b>${r.upset ? `${nm(r.upset.team)} over the ${teamName(r.upset.vs)} (${r.upset.pct}%)` : '—'}</b></li>`,
     `<li><span>Most wins</span><b>${r.mostWins ? `${nm(r.mostWins.team)}, ${r.mostWins.n} ${r.mostWins.n === 1 ? 'win' : 'wins'}` : '—'}</b></li>`,
     `<li><span>Longest win streak</span><b>${r.streak ? `${nm(r.streak.team)}, ${r.streak.n} ${r.streak.n === 1 ? 'win' : 'wins'}` : '—'}</b></li>`,
-    `<li><span>Most states taken in one win</span><b>${r.bigTake ? `${nm(r.bigTake.team)}, ${r.bigTake.n} ${r.bigTake.n === 1 ? 'state' : 'states'} from the ${teamName(r.bigTake.from)}` : '—'}</b></li>`,
+    `<li><span>Most states taken in one win</span><b>${r.bigTake ? `${nm(r.bigTake.team)}, ${r.bigTake.n} ${UNIT(r.bigTake.n)} from the ${teamName(r.bigTake.from)}` : '—'}</b></li>`,
     `<li><span>Fastest knockout</span><b>${r.fastestOut ? `${nm(r.fastestOut.team)} on turn ${r.fastestOut.turn} (by the ${teamName(r.fastestOut.by)})` : '—'}</b></li>`,
   ];
 }
 function drawRecords() { const e = $('records'); if (e && state) e.innerHTML = recordLines().join(''); }
 
-async function boot() {
-  const topo = await (await fetch('states-10m.json')).json();
-  const built = buildRegions(topo);
+// Load a map's data and build its regions, borders and lookup tables.
+async function loadMap(key) {
+  MAP = key;
+  const topo = await (await fetch(key === 'world' ? 'countries-110m.json' : 'states-10m.json')).json();
+  const built = key === 'world' ? buildWorld(topo) : buildUSA(topo);
   REGIONS = built.regions;
   BY_ID = Object.fromEntries(REGIONS.map(r => [r.id, r]));
   STATE_OF = Object.fromEntries(REGIONS.map(r => [r.id, r.state]));
   CENT = Object.fromEntries(REGIONS.map(r => [r.id, r.at]));
   LABEL.fill(-1);
   REGIONS.forEach((r, i) => { for (const [x, y] of r.pts) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) { const gx = x + dx, gy = y + dy; if (gx < W && gy < H) LABEL[gy * W + gx] = i; } });
-  await Promise.all(TEAMS.map(t => new Promise(res => { const im = new Image(); im.onload = im.onerror = res; im.src = logoUrl(t.abbr); })));
-  for (const t of TEAMS) CAPITALS[t.abbr] = REGIONS.find(r => r.team === t.abbr && r.state !== 'DC').id;
+  ANCHOR_CACHE.clear();
   drawMap(built);
-  state = load();
+  drawAssign();
+}
+let mapArmed = null;
+async function switchMap(key) {
+  if (key === MAP || busy) return;
+  stopAuto(); exitReplay(false);
+  $('loading').hidden = false; $('loading').textContent = 'Loading map…';
+  await loadMap(key);
+  state = fresh({ ...state, map: key }); CAPITALS = state.home;
+  turn = { step: 'wheel' }; wheelRot = 0; arrowRot = 0;
   $('loading').hidden = true;
-  drawStrengths(); drawAssign(); wireOptions(); drawReplay(); drawRecords();
-  for (const b of document.querySelectorAll('.seg button')) b.onclick = () => { state.mode = b.dataset.mode; if (state.mode === 'pick') stopAuto(); save(); render(); };
+  save(); drawMapSwitch(); drawStrengths(); paint(); render(); drawReplay(); drawRecords();
+}
+function drawMapSwitch() {
+  for (const b of document.querySelectorAll('.mapseg button')) b.setAttribute('aria-pressed', String(b.dataset.map === MAP));
+  $('map').setAttribute('aria-label', MAP === 'world' ? 'World map colored by NFL team territory' : 'Map of the United States colored by NFL team territory');
+}
+
+async function boot() {
+  let savedMap = 'usa';
+  try { savedMap = (JSON.parse(localStorage.getItem(STORE)) || {}).map || 'usa'; } catch {}
+  await Promise.all(TEAMS.map(t => new Promise(res => { const im = new Image(); im.onload = im.onerror = res; im.src = logoUrl(t.abbr); })));
+  await loadMap(savedMap);
+  state = load(); CAPITALS = state.home;
+  $('loading').hidden = true;
+  drawStrengths(); wireOptions(); drawReplay(); drawRecords(); drawMapSwitch();
+  for (const b of document.querySelectorAll('.seg:not(.mapseg) button')) b.onclick = () => { state.mode = b.dataset.mode; if (state.mode === 'pick') stopAuto(); save(); render(); };
+  for (const b of document.querySelectorAll('.mapseg button')) b.onclick = () => {
+    if (b.dataset.map === MAP) return;
+    const hint = $('map-hint');
+    if (mapArmed === b.dataset.map) { clearTimeout(mapArmed.t); mapArmed = null; hint.hidden = true; switchMap(b.dataset.map); return; }
+    mapArmed = b.dataset.map; hint.hidden = false;
+    setTimeout(() => { if (mapArmed === b.dataset.map) { mapArmed = null; hint.hidden = true; } }, 3500);
+  };
   $('reset').onclick = () => {
     const b = $('reset');
     if (resetArmed) { clearTimeout(resetArmed); resetArmed = null; b.textContent = 'Reset map'; b.className = 'btn ghost'; doReset(); return; }
