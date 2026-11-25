@@ -20,7 +20,6 @@ let CAPITALS = {};            // team -> its home region id
 let autoplay = false, autoSpeed = 2, replaying = false;
 const SPEED = () => autoplay ? autoSpeed : 1;
 const opt = k => !!(state && state.options && state.options[k]);
-const TOKENS = () => MAP === 'world' ? 16 : 8;   // power-up tokens on the map
 const UNIT = n => MAP === 'world' ? (n === 1 ? 'country' : 'countries') : (n === 1 ? 'state' : 'states');
 const stateLabel = code => MAP === 'world' ? BY_ID[code].name : CODE_TO_NAME[code];
 const usaKey = g => SKIP.has(g.properties.name) ? null : NAME_TO_CODE[g.properties.name];
@@ -637,6 +636,7 @@ function finishBattle(winner, upset = false, winnerOdds = null, extra = '') {
 
 // Save the move: record-book peak, a history snapshot for the replay, then store.
 function commit() {
+  dropDeadPowers();
   state.history.push({ t: state.turn, c: encodeOwners(state.owners, REGIONS.map(r => r.id), TEAMS.map(t => t.abbr)) });
   if (state.history.length > 500) state.history.splice(1, state.history.length - 500);
   save(); drawReplay(); drawRecords();
@@ -645,8 +645,6 @@ function commit() {
 function nextTurn() {
   turn = { step: 'wheel' }; clearAim();
   if (opt('powerups')) {
-    const n = Object.keys(state.tokens || {}).length;
-    if (n < TOKENS()) state.tokens = placeTokens(state.owners, state.tokens || {}, n + 1, Math.random, frontier(state.owners));
     if (state.bonusTurn && aliveTeams(state.owners).includes(state.bonusTurn)) turn = { step: 'arrow', attacker: state.bonusTurn, bonus: true };
     state.bonusTurn = null;
   }
@@ -854,8 +852,8 @@ function fresh(keep = {}) {
     owners = initialOwners(REGIONS);
     home = usaHomes();
   }
-  const tokens = options.powerups ? placeTokens(owners, {}, TOKENS(), Math.random, frontier(owners)) : {};
-  return { map: MAP, owners, home, tokens, powers: {}, bonusTurn: null, strengths: startStrengths(options, wl), mode: keep.mode || 'pick', log: [], turn: 0, options, wl, records: {},
+  const tokens = options.powerups ? placeTokens(owners, {}, POWERS.length, Math.random, frontier(owners)) : {};
+  return { map: MAP, owners, home, tokens, powers: {}, usedPowers: [], bonusTurn: null, strengths: startStrengths(options, wl), mode: keep.mode || 'pick', log: [], turn: 0, options, wl, records: {},
     history: [{ t: 0, c: encodeOwners(owners, REGIONS.map(r => r.id), TEAMS.map(t => t.abbr)) }] };
 }
 function load() {
@@ -866,7 +864,7 @@ function load() {
       const f = fresh(s);
       const owners = Object.fromEntries(REGIONS.map(r => [r.id, s.owners[r.id]]));
       return { ...f, ...s, map: MAP, options: f.options, wl: f.wl, records: s.records || {}, history: s.history && s.history.length ? s.history : f.history, owners,
-        home: s.home || f.home, tokens: s.tokens || (f.options.powerups ? placeTokens(owners, {}, TOKENS(), Math.random, frontier(owners)) : {}), powers: s.powers || {} };
+        home: s.home || f.home, tokens: s.tokens || (f.options.powerups ? placeTokens(owners, {}, POWERS.length, Math.random, frontier(owners), new Set(s.usedPowers || [])) : {}), powers: s.powers || {}, usedPowers: s.usedPowers || [] };
     }
   } catch {}
   return fresh();
@@ -944,6 +942,17 @@ function wireZoom() {
 }
 
 // ---------- power-ups ----------
+// Power-ups that have already been picked up this game (each one exists only once).
+const usedSet = () => new Set([...(state.usedPowers || []), ...Object.values(state.powers || {}).flat()]);
+// A knocked-out team's unused power-ups are gone for good.
+function dropDeadPowers() {
+  const alive = new Set(aliveTeams(state.owners));
+  for (const [team, held] of Object.entries(state.powers || {})) {
+    if (!held.length || alive.has(team)) continue;
+    addLog(`The ${teamName(team)}' ${listJoin(held.map(p => POWERS.find(q => q.id === p).name))} ${held.length === 1 ? 'is' : 'are'} gone for good`);
+    state.powers[team] = [];
+  }
+}
 // Empty land that touches some team's territory: where new power-up tokens go first.
 function frontier(owners) {
   const f = new Set();
@@ -963,6 +972,7 @@ function collect(team, ids) {
   for (const id of ids) {
     const pid = (state.tokens || {})[id]; if (!pid) continue;
     delete state.tokens[id];
+    (state.usedPowers ||= []).push(pid);
     const P = POWERS.find(p => p.id === pid);
     addLog(`<b>${teamName(team)}</b> pick up <b class="up">${P.name}</b> in ${regionName(BY_ID[id])}`);
     msg += ` They pick up <b>${P.name}</b>: ${P.desc}`;
@@ -1003,7 +1013,7 @@ function wireOptions() {
   for (const k of ['sound', 'capitals', 'rebellions', 'powerups']) {
     const box = $(`opt-${k}`);
     box.checked = opt(k);
-    box.onchange = () => { state.options[k] = box.checked; if (k === 'sound' && box.checked) { ac(); sfx.touchdown(); } if (k === 'powerups' && box.checked && !Object.keys(state.tokens || {}).length) state.tokens = placeTokens(state.owners, {}, TOKENS(), Math.random, frontier(state.owners)); save(); paint(); render(); };
+    box.onchange = () => { state.options[k] = box.checked; if (k === 'sound' && box.checked) { ac(); sfx.touchdown(); } if (k === 'powerups' && box.checked) state.tokens = placeTokens(state.owners, state.tokens || {}, POWERS.length, Math.random, frontier(state.owners), usedSet()); save(); paint(); render(); };
   }
   $('opt-records').onchange = e => {
     state.options.useRecords = e.target.checked;

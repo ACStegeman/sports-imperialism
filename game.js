@@ -291,17 +291,19 @@ export const POWERS = [
   { id: 'tag', name: 'Franchise Tag', glyph: '★', desc: 'Knocked out? Keep your home land and stay alive (once).' },
   { id: 'home', name: 'Home Crowd', glyph: '⌂', desc: '+15% the next time you defend at home.' },
 ];
-// Top up power-up tokens on empty land (one per region) until there are `count`.
+// Put power-up tokens on empty land (one per region), up to `count`. Each power-up exists once per game:
+// never two of the same on the map, and never one listed in `used` (already picked up).
 // prefer (optional): regions to fill first, such as empty land next to a team.
-export function placeTokens(owners, tokens, count, rng = Math.random, prefer = null) {
+export function placeTokens(owners, tokens, count, rng = Math.random, prefer = null, used = new Set()) {
   const out = { ...tokens };
+  const pool = POWERS.map(p => p.id).filter(id => !used.has(id) && !Object.values(out).includes(id));
   const open = Object.keys(owners).filter(id => !owners[id] && !(id in out));
   const near = prefer ? open.filter(id => prefer.has(id)) : [];
-  while (Object.keys(out).length < count && open.length) {
+  while (Object.keys(out).length < count && open.length && pool.length) {
     const from = near.length ? near : open;
     const id = from.splice(Math.floor(rng() * from.length), 1)[0];
     if (from === near) open.splice(open.indexOf(id), 1);
-    out[id] = POWERS[Math.floor(rng() * POWERS.length)].id;
+    out[id] = pool.splice(Math.floor(rng() * pool.length), 1)[0];
   }
   return out;
 }

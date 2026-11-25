@@ -310,3 +310,13 @@ test('placeTokens prefers empty land next to a team when told where that is', ()
   const t2 = placeTokens(o, {}, 4, rng, new Set(['B', 'C']));   // frontier used up, then anywhere
   assert.equal(Object.keys(t2).length, 4); assert.ok('B' in t2 && 'C' in t2);
 });
+test('placeTokens: one of each power-up per game, never one that was already used', () => {
+  let seed = 13; const rng = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const o = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`R${i}`, null]));
+  const t = placeTokens(o, {}, 20, rng);
+  assert.equal(Object.keys(t).length, POWERS.length);                 // only 8 exist
+  assert.equal(new Set(Object.values(t)).size, POWERS.length);        // all different
+  const t2 = placeTokens(o, {}, 20, rng, null, new Set(['hail', 'bye']));
+  assert.equal(Object.keys(t2).length, POWERS.length - 2);
+  assert.ok(!Object.values(t2).includes('hail') && !Object.values(t2).includes('bye'));
+});

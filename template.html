@@ -212,7 +212,7 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
     </div>
     <div class="card">
       <p class="label">Options</p>
-      <label class="toggle"><input type="checkbox" id="opt-powerups"><span><b>Power-ups</b>Gold tokens sit on open land. Claim the land to grab the power-up.</span></label>
+      <label class="toggle"><input type="checkbox" id="opt-powerups"><span><b>Power-ups</b>One of each of the 8 power-ups sits on open land. Claim the land to grab it.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-sound"><span><b>Sound</b>Whistle, crowd and horn during games.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-capitals"><span><b>Capitals</b>A battle wins only the land fought over. Take a team's capital (the star) and you take everything.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-rebellions"><span><b>Rebellions</b>Each turn, a knocked-out team has a small chance to rise up and retake its home.</span></label>
@@ -283,6 +283,7 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
       <ul class="powers" id="powers"></ul>
       <details>
         <summary class="label">What each power-up does</summary>
+        <p class="hint" style="margin-top:10px">Each power-up shows up once per game. Once it's used, or its team is knocked out, it's gone.</p>
         <ul class="legend" id="power-legend"></ul>
       </details>
     </div>

@@ -212,7 +212,7 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
     </div>
     <div class="card">
       <p class="label">Options</p>
-      <label class="toggle"><input type="checkbox" id="opt-powerups"><span><b>Power-ups</b>Gold tokens sit on open land. Claim the land to grab the power-up.</span></label>
+      <label class="toggle"><input type="checkbox" id="opt-powerups"><span><b>Power-ups</b>One of each of the 8 power-ups sits on open land. Claim the land to grab it.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-sound"><span><b>Sound</b>Whistle, crowd and horn during games.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-capitals"><span><b>Capitals</b>A battle wins only the land fought over. Take a team's capital (the star) and you take everything.</span></label>
       <label class="toggle"><input type="checkbox" id="opt-rebellions"><span><b>Rebellions</b>Each turn, a knocked-out team has a small chance to rise up and retake its home.</span></label>
@@ -283,6 +283,7 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
       <ul class="powers" id="powers"></ul>
       <details>
         <summary class="label">What each power-up does</summary>
+        <p class="hint" style="margin-top:10px">Each power-up shows up once per game. Once it's used, or its team is knocked out, it's gone.</p>
         <ul class="legend" id="power-legend"></ul>
       </details>
     </div>
@@ -630,17 +631,19 @@ const POWERS = [
   { id: 'tag', name: 'Franchise Tag', glyph: '★', desc: 'Knocked out? Keep your home land and stay alive (once).' },
   { id: 'home', name: 'Home Crowd', glyph: '⌂', desc: '+15% the next time you defend at home.' },
 ];
-// Top up power-up tokens on empty land (one per region) until there are `count`.
+// Put power-up tokens on empty land (one per region), up to `count`. Each power-up exists once per game:
+// never two of the same on the map, and never one listed in `used` (already picked up).
 // prefer (optional): regions to fill first, such as empty land next to a team.
-function placeTokens(owners, tokens, count, rng = Math.random, prefer = null) {
+function placeTokens(owners, tokens, count, rng = Math.random, prefer = null, used = new Set()) {
   const out = { ...tokens };
+  const pool = POWERS.map(p => p.id).filter(id => !used.has(id) && !Object.values(out).includes(id));
   const open = Object.keys(owners).filter(id => !owners[id] && !(id in out));
   const near = prefer ? open.filter(id => prefer.has(id)) : [];
-  while (Object.keys(out).length < count && open.length) {
+  while (Object.keys(out).length < count && open.length && pool.length) {
     const from = near.length ? near : open;
     const id = from.splice(Math.floor(rng() * from.length), 1)[0];
     if (from === near) open.splice(open.indexOf(id), 1);
-    out[id] = POWERS[Math.floor(rng() * POWERS.length)].id;
+    out[id] = pool.splice(Math.floor(rng() * pool.length), 1)[0];
   }
   return out;
 }
@@ -672,7 +675,6 @@ let CAPITALS = {};            // team -> its home region id
 let autoplay = false, autoSpeed = 2, replaying = false;
 const SPEED = () => autoplay ? autoSpeed : 1;
 const opt = k => !!(state && state.options && state.options[k]);
-const TOKENS = () => MAP === 'world' ? 16 : 8;   // power-up tokens on the map
 const UNIT = n => MAP === 'world' ? (n === 1 ? 'country' : 'countries') : (n === 1 ? 'state' : 'states');
 const stateLabel = code => MAP === 'world' ? BY_ID[code].name : CODE_TO_NAME[code];
 const usaKey = g => SKIP.has(g.properties.name) ? null : NAME_TO_CODE[g.properties.name];
@@ -1289,6 +1291,7 @@ function finishBattle(winner, upset = false, winnerOdds = null, extra = '') {
 
 // Save the move: record-book peak, a history snapshot for the replay, then store.
 function commit() {
+  dropDeadPowers();
   state.history.push({ t: state.turn, c: encodeOwners(state.owners, REGIONS.map(r => r.id), TEAMS.map(t => t.abbr)) });
   if (state.history.length > 500) state.history.splice(1, state.history.length - 500);
   save(); drawReplay(); drawRecords();
@@ -1297,8 +1300,6 @@ function commit() {
 function nextTurn() {
   turn = { step: 'wheel' }; clearAim();
   if (opt('powerups')) {
-    const n = Object.keys(state.tokens || {}).length;
-    if (n < TOKENS()) state.tokens = placeTokens(state.owners, state.tokens || {}, n + 1, Math.random, frontier(state.owners));
     if (state.bonusTurn && aliveTeams(state.owners).includes(state.bonusTurn)) turn = { step: 'arrow', attacker: state.bonusTurn, bonus: true };
     state.bonusTurn = null;
   }
@@ -1506,8 +1507,8 @@ function fresh(keep = {}) {
     owners = initialOwners(REGIONS);
     home = usaHomes();
   }
-  const tokens = options.powerups ? placeTokens(owners, {}, TOKENS(), Math.random, frontier(owners)) : {};
-  return { map: MAP, owners, home, tokens, powers: {}, bonusTurn: null, strengths: startStrengths(options, wl), mode: keep.mode || 'pick', log: [], turn: 0, options, wl, records: {},
+  const tokens = options.powerups ? placeTokens(owners, {}, POWERS.length, Math.random, frontier(owners)) : {};
+  return { map: MAP, owners, home, tokens, powers: {}, usedPowers: [], bonusTurn: null, strengths: startStrengths(options, wl), mode: keep.mode || 'pick', log: [], turn: 0, options, wl, records: {},
     history: [{ t: 0, c: encodeOwners(owners, REGIONS.map(r => r.id), TEAMS.map(t => t.abbr)) }] };
 }
 function load() {
@@ -1518,7 +1519,7 @@ function load() {
       const f = fresh(s);
       const owners = Object.fromEntries(REGIONS.map(r => [r.id, s.owners[r.id]]));
       return { ...f, ...s, map: MAP, options: f.options, wl: f.wl, records: s.records || {}, history: s.history && s.history.length ? s.history : f.history, owners,
-        home: s.home || f.home, tokens: s.tokens || (f.options.powerups ? placeTokens(owners, {}, TOKENS(), Math.random, frontier(owners)) : {}), powers: s.powers || {} };
+        home: s.home || f.home, tokens: s.tokens || (f.options.powerups ? placeTokens(owners, {}, POWERS.length, Math.random, frontier(owners), new Set(s.usedPowers || [])) : {}), powers: s.powers || {}, usedPowers: s.usedPowers || [] };
     }
   } catch {}
   return fresh();
@@ -1596,6 +1597,17 @@ function wireZoom() {
 }
 
 // ---------- power-ups ----------
+// Power-ups that have already been picked up this game (each one exists only once).
+const usedSet = () => new Set([...(state.usedPowers || []), ...Object.values(state.powers || {}).flat()]);
+// A knocked-out team's unused power-ups are gone for good.
+function dropDeadPowers() {
+  const alive = new Set(aliveTeams(state.owners));
+  for (const [team, held] of Object.entries(state.powers || {})) {
+    if (!held.length || alive.has(team)) continue;
+    addLog(`The ${teamName(team)}' ${listJoin(held.map(p => POWERS.find(q => q.id === p).name))} ${held.length === 1 ? 'is' : 'are'} gone for good`);
+    state.powers[team] = [];
+  }
+}
 // Empty land that touches some team's territory: where new power-up tokens go first.
 function frontier(owners) {
   const f = new Set();
@@ -1615,6 +1627,7 @@ function collect(team, ids) {
   for (const id of ids) {
     const pid = (state.tokens || {})[id]; if (!pid) continue;
     delete state.tokens[id];
+    (state.usedPowers ||= []).push(pid);
     const P = POWERS.find(p => p.id === pid);
     addLog(`<b>${teamName(team)}</b> pick up <b class="up">${P.name}</b> in ${regionName(BY_ID[id])}`);
     msg += ` They pick up <b>${P.name}</b>: ${P.desc}`;
@@ -1655,7 +1668,7 @@ function wireOptions() {
   for (const k of ['sound', 'capitals', 'rebellions', 'powerups']) {
     const box = $(`opt-${k}`);
     box.checked = opt(k);
-    box.onchange = () => { state.options[k] = box.checked; if (k === 'sound' && box.checked) { ac(); sfx.touchdown(); } if (k === 'powerups' && box.checked && !Object.keys(state.tokens || {}).length) state.tokens = placeTokens(state.owners, {}, TOKENS(), Math.random, frontier(state.owners)); save(); paint(); render(); };
+    box.onchange = () => { state.options[k] = box.checked; if (k === 'sound' && box.checked) { ac(); sfx.touchdown(); } if (k === 'powerups' && box.checked) state.tokens = placeTokens(state.owners, state.tokens || {}, POWERS.length, Math.random, frontier(state.owners), usedSet()); save(); paint(); render(); };
   }
   $('opt-records').onchange = e => {
     state.options.useRecords = e.target.checked;
