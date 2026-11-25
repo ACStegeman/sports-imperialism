@@ -42,29 +42,9 @@ test('fifty battle splits at 0.5; pick returns null', () => {
 test('teamCentroid averages owned region centroids', () => {
   assert.deepEqual(teamCentroid('bal', cents, initialOwners(regions)), [1, 0]);
 });
-test('pickTarget picks region in arrow direction, never own', () => {
-  const o = initialOwners(regions);
-  assert.equal(pickTarget('bal', 0, cents, o), 'C');   // east
-  assert.equal(pickTarget('bal', 90, cents, o), 'B');  // down (screen)
-});
-test('pickTarget falls back to closest angle when nothing in cone', () => {
-  const o = initialOwners(regions);
-  assert.equal(pickTarget('bal', 180, cents, o) !== undefined, true);
-  assert.notEqual(o[pickTarget('bal', 180, cents, o)], 'bal');
-});
 test('champion only when one team left', () => {
   assert.equal(champion(initialOwners(regions)), null);
   assert.equal(champion(conquer(initialOwners(regions), 'bal', 'wsh')), 'bal');
-});
-test('pickTarget prefers a nearby region slightly off-angle over a far one dead ahead', () => {
-  const c = { home: [0, 0], far: [100, 0], near: [10, 5] };
-  const o = { home: 'bal', far: null, near: null };
-  assert.equal(pickTarget('bal', 0, c, o), 'near');
-});
-test('pickTarget ignores regions behind the arrow when something is ahead', () => {
-  const c = { home: [0, 0], behind: [-3, 0], ahead: [50, 30] };
-  const o = { home: 'bal', behind: null, ahead: null };
-  assert.equal(pickTarget('bal', 0, c, o), 'ahead');
 });
 test('border hides between two regions of the same team, shows otherwise', () => {
   const o = { NV: 'lv', ID: 'lv', UT: null, WY: null, OR: 'sea' };
@@ -88,4 +68,23 @@ test('stateCounts counts each state once per team, DC counts as Maryland', () =>
   assert.deepEqual(stateCounts({ 'NY-buf': 'buf', 'NY-nyj': 'nyj', 'NY-nyg': 'nyg', 'MD-wsh': 'wsh', DC: 'wsh', 'MD-bal': 'bal', PA: null }, stateOf),
     { buf: 1, nyj: 1, nyg: 1, wsh: 1, bal: 1 });
   assert.deepEqual(stateCounts({ 'NY-buf': 'buf', 'NY-nyj': 'buf', 'NY-nyg': 'nyg', 'MD-wsh': 'wsh', DC: 'wsh', 'MD-bal': 'bal', PA: 'buf' }, stateOf).buf, 2);
+});
+test('pickTarget only hits land neighbors in the arrow direction', () => {
+  // Bears in IL; MI is due east across the lake (not a neighbor), IN is east-southeast and touches IL
+  const c = { IL: [0, 0], MI: [20, 0], IN: [10, 3], MO: [-5, 10], WI: [0, -10] };
+  const o = { IL: 'chi', MI: 'det', IN: 'ind', MO: 'kc', WI: 'gb' };
+  const adj = [['IL', 'IN'], ['IL', 'MO'], ['IL', 'WI'], ['WI', 'MI'], ['IN', 'MI']];
+  assert.equal(pickTarget('chi', 0, c, o, adj), 'IN');      // east: IN, never MI
+  assert.equal(pickTarget('chi', -90, c, o, adj), 'WI');    // north (screen up)
+  assert.equal(pickTarget('gb', 45, { ...c }, o, adj), 'MI'); // Packers can reach the Lions
+});
+test('pickTarget returns null (respin) when the arrow points where there is no neighbor', () => {
+  const c = { MIA: [0, 0], TB: [-5, -8] };
+  const o = { MIA: 'mia', TB: 'tb' };
+  assert.equal(pickTarget('mia', 90, c, o, [['MIA', 'TB']]), null); // south into the ocean
+});
+test('pickTarget counts neighbors of any region the team owns', () => {
+  const c = { A: [0, 0], B: [10, 0], C: [20, 0] };
+  const o = { A: 'x', B: 'x', C: null };
+  assert.equal(pickTarget('x', 0, c, o, [['A', 'B'], ['B', 'C']]), 'C');
 });

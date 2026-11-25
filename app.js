@@ -251,7 +251,13 @@ async function spinArrow() {
   const target = arrowRot + 720 + mod(final - arrowRot, 360);
   await animate(arrowRot, target, 2600, r => drawArrow(a, r));
   arrowRot = mod(target, 360);
-  const tid = pickTarget(a, arrowRot, CENT, state.owners);
+  const tid = pickTarget(a, arrowRot, CENT, state.owners, ADJ);
+  if (!tid) {
+    // pointed at water or nobody it borders: respin
+    turn = { step: 'arrow', attacker: a, missed: true };
+    busy = false; render();
+    return;
+  }
   showAim(a, tid);
   const defender = state.owners[tid];
   if (!defender) {
@@ -317,8 +323,10 @@ function render() {
     st.innerHTML = busy ? 'Spinning…' : 'Spin the wheel to pick who attacks.';
     btn('Spin the wheel', spinWheel);
   } else if (turn.step === 'arrow') {
-    st.innerHTML = busy ? 'Aiming…' : `The <b>${TEAM_BY_ABBR[turn.attacker].name}</b> are on the move. Spin the arrow to pick a direction.`;
-    btn('Spin the arrow', spinArrow);
+    st.innerHTML = busy ? 'Aiming…' : turn.missed
+      ? `No land border that way. The <b>${TEAM_BY_ABBR[turn.attacker].name}</b> can only attack states they touch by land. Spin again.`
+      : `The <b>${TEAM_BY_ABBR[turn.attacker].name}</b> are on the move. Spin the arrow to pick a direction.`;
+    btn(turn.missed ? 'Spin again' : 'Spin the arrow', spinArrow);
   } else if (turn.step === 'battle') {
     const { attacker: a, defender: b } = turn, [pa, pb] = odds(a, b), showPct = state.mode !== 'pick';
     st.innerHTML = `The arrow points at ${regionName(BY_ID[turn.region])}. Battle!`;

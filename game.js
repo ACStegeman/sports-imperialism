@@ -29,18 +29,22 @@ export function teamCentroid(team, centroids, owners) {
 const angDiff = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
 
 // angleDeg in screen coords: 0 = right, 90 = down.
-// Target = the closest region roughly in the arrow's direction: distance grows with how far off-angle it is,
-// and regions more than 90 degrees off (behind the arrow) only count if nothing is ahead.
-export function pickTarget(team, angleDeg, centroids, owners, spread = 30) {
+// Only land that shares a border with the team's territory can be hit. Of those, take the one closest to
+// the arrow's direction, within `cone` degrees. Nothing there (water, Canada, Mexico) -> null, meaning respin.
+export function pickTarget(team, angleDeg, centroids, owners, adjacency, cone = 45) {
   const [cx, cy] = teamCentroid(team, centroids, owners);
-  const cands = Object.keys(owners).filter(id => owners[id] !== team && centroids[id]).map(id => {
+  const near = new Set();
+  for (const [a, b] of adjacency) {
+    if (owners[a] === team && owners[b] !== team) near.add(b);
+    if (owners[b] === team && owners[a] !== team) near.add(a);
+  }
+  let best = null, bestDiff = Infinity;
+  for (const id of near) {
     const [x, y] = centroids[id];
-    const dist = Math.hypot(x - cx, y - cy), diff = angDiff(Math.atan2(y - cy, x - cx) * 180 / Math.PI, angleDeg);
-    return { id, diff, score: dist * (1 + (diff / spread) ** 2) };
-  });
-  const ahead = cands.filter(c => c.diff <= 90).sort((a, b) => a.score - b.score);
-  if (ahead.length) return ahead[0].id;
-  return cands.sort((a, b) => a.diff - b.diff)[0]?.id;
+    const diff = angDiff(Math.atan2(y - cy, x - cx) * 180 / Math.PI, angleDeg);
+    if (diff <= cone && diff < bestDiff) { bestDiff = diff; best = id; }
+  }
+  return best;
 }
 
 export function champion(owners) {

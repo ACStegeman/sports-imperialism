@@ -18,7 +18,7 @@ A personal "NFL imperialism" game: a US map with state lines where every NFL tea
 
 ## Turn flow
 1. Spin wheel → picks a team still alive.
-2. Spin arrow from that team's territory centroid → first region in that direction not owned by the team.
+2. Spin arrow from that team's territory → only land that shares a land border with the team's territory can be hit (closest to the arrow direction, within 45°). Pointing at water or no neighbor → respin. (Packers↔Lions share the Upper Peninsula border; Bears↔Lions do not.)
 3. Blank target → team takes it, no battle. Owned target → battle.
 4. Battle modes (switchable): Pick winner (buttons), 50/50, Weighted (strength 1–10 per team, editable, odds = a/(a+b)).
 5. Winner takes all of loser's territory; loser leaves the wheel. Last team standing → champion screen.
