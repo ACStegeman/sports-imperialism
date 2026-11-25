@@ -15,6 +15,10 @@ const LABEL = new Int16Array(W * H);
 let state = null; // { owners, strengths, mode, log, turn }
 let turn = { step: 'wheel' }; // wheel | arrow | battle | done
 let wheelRot = 0, arrowRot = 0, busy = false;
+let CAPITALS = {};            // team -> its home region id
+let autoplay = false, autoSpeed = 2, replaying = false;
+const SPEED = () => autoplay ? autoSpeed : 1;
+const opt = k => !!(state && state.options && state.options[k]);
 
 // ---------- geometry ----------
 const GRID = new Uint8Array(W * H);
@@ -186,6 +190,7 @@ function paint(owners = state.owners) {
   for (const g of SEGS) if (showBorder(owners, g.a, g.b)) bd += `M${g.p[0].toFixed(1)},${g.p[1].toFixed(1)}L${g.q[0].toFixed(1)},${g.q[1].toFixed(1)}`;
   gBorders.setAttribute('d', bd);
   gLogos.innerHTML = '';
+  const logoSpots = [];
   for (const t of territories(owners, ADJ)) {
     const spot = territorySpot(t);
     if (spot.area < 120) continue;
@@ -193,6 +198,18 @@ function paint(owners = state.owners) {
     el('circle', { cx: spot.at[0], cy: spot.at[1], r: s * 0.5, fill: '#eef2ea', 'fill-opacity': 0.92, stroke: color, 'stroke-width': 1.5, class: 'logo' }, gLogos);
     const li = s * 0.78;
     el('image', { href: logoUrl(t.team), x: spot.at[0] - li / 2, y: spot.at[1] - li / 2, width: li, height: li, class: 'logo' }, gLogos);
+    logoSpots.push({ x: spot.at[0], y: spot.at[1], r: s / 2 });
+  }
+  if (opt('capitals')) {
+    for (const [team, cap] of Object.entries(CAPITALS)) {
+      if (owners[cap] !== team) continue;
+      let [x, y] = BY_ID[cap].at;
+      const near = logoSpots.find(L => Math.hypot(L.x - x, L.y - y) < L.r + 6);
+      if (near) { x = near.x + near.r * 0.78; y = near.y - near.r * 0.78; }
+      const pts = Array.from({ length: 10 }, (_, k) => { const rr = k % 2 ? 3.2 : 7.5, a = -Math.PI / 2 + k * Math.PI / 5; return `${(x + rr * Math.cos(a)).toFixed(1)},${(y + rr * Math.sin(a)).toFixed(1)}`; }).join(' ');
+      const star = el('polygon', { points: pts, class: 'capital' }, gLogos);
+      el('title', {}, star).textContent = `${TEAM_BY_ABBR[team].name} capital`;
+    }
   }
   drawWheel();
   drawStandings();
@@ -244,7 +261,7 @@ async function spinWheel() {
   const teams = wheelTeams(), n = teams.length, idx = Math.floor(Math.random() * n), center = (idx + 0.5) * (360 / n);
   const jitter = (Math.random() - 0.5) * (360 / n) * 0.6;
   const target = wheelRot + 360 * 5 + mod(-center - jitter - wheelRot, 360);
-  await animate(wheelRot, target, 3800, setWheel);
+  await animate(wheelRot, target, 3800 / SPEED(), setWheel);
   wheelRot = mod(target, 360);
   turn = { step: 'arrow', attacker: teams[idx].abbr };
   busy = false; render();
@@ -263,7 +280,7 @@ async function spinArrow() {
   busy = true; render();
   const a = turn.attacker, final = Math.random() * 360;
   const target = arrowRot + 720 + mod(final - arrowRot, 360);
-  await animate(arrowRot, target, 2600, r => drawArrow(a, r));
+  await animate(arrowRot, target, 2600 / SPEED(), r => drawArrow(a, r));
   arrowRot = mod(target, 360);
   const tid = rayTarget(a, teamSpot(a), arrowRot, labelAt, state.owners, ADJ);
   if (!tid) {
@@ -278,7 +295,7 @@ async function spinArrow() {
     state.owners = claim(state.owners, a, tid);
     addLog(`<b>${teamName(a)}</b> claim open land in ${regionName(BY_ID[tid])}`);
     turn = { step: 'done', attacker: a, msg: `The <b>${TEAM_BY_ABBR[a].name}</b> march into ${regionName(BY_ID[tid])}. Nobody was home.` + afterMove() };
-    nextTurnCount(); save();
+    nextTurnCount(); commit();
   } else {
     turn = { step: 'battle', attacker: a, defender, region: tid };
   }
@@ -296,19 +313,17 @@ function showAim(team, tid) {
 function clearAim() { showAim(null, null); drawArrow(null); }
 
 // ---------- battle ----------
-function odds(a, b) {
-  if (state.mode === 'weighted') { const sa = state.strengths[a], sb = state.strengths[b]; return [sa / (sa + sb), sb / (sa + sb)]; }
-  return [0.5, 0.5];
-}
+const odds = (a, b) => battleOdds(a, b, state.mode, state.strengths);
 async function fight() {
   busy = true; render();
   const { attacker: a, defender: b } = turn;
   const winner = resolveBattle(a, b, state.mode, state.strengths);
   const loser = winner === a ? b : a;
-  const upset = isUpset(winner, loser, state.strengths, state.mode);
+  const upset = isUpset(winner, a, b, state.mode, state.strengths);
+  const winnerOdds = odds(a, b)[winner === a ? 0 : 1];
   await playGame(a, b, simulateGame(winner, loser), upset);
   busy = false;
-  finishBattle(winner, upset);
+  finishBattle(winner, upset, winnerOdds);
 }
 
 // ---------- simulated game popup ----------
@@ -325,18 +340,18 @@ function playText(e) {
 function playGame(a, b, game, upset = false) {
   return new Promise(resolve => {
     const ov = $('overlay'), A = TEAM_BY_ABBR[a], B = TEAM_BY_ABBR[b];
-    ov.innerHTML = `<div class="game" role="dialog" aria-label="${A.name} vs ${B.name}">
+    ov.innerHTML = `<div class="game" id="game-open" role="dialog" aria-label="${A.name} vs ${B.name}">
       <div class="board">
-        <div class="bt"><img src="${logoUrl(a)}" alt=""><span>${teamName(a)}</span><b id="sc-a">0</b></div>
+        <div class="bt"><img src="${logoUrl(a)}" alt=""><span>${teamName(a)}<small>AWAY</small></span><b id="sc-a">0</b></div>
         <div class="clock"><span id="g-q">1st</span><span id="g-clock">15:00</span></div>
-        <div class="bt"><img src="${logoUrl(b)}" alt=""><span>${teamName(b)}</span><b id="sc-b">0</b></div>
+        <div class="bt"><img src="${logoUrl(b)}" alt=""><span>${teamName(b)}<small>HOME</small></span><b id="sc-b">0</b></div>
       </div>
       <svg class="gfield" viewBox="0 0 240 70" aria-hidden="true">
         <rect x="0" y="0" width="240" height="70" fill="#2f6b3a"/>
         <rect x="0" y="0" width="20" height="70" fill="${A.color}"/><rect x="220" y="0" width="20" height="70" fill="${B.color}"/>
         ${Array.from({ length: 9 }, (_, k) => `<line x1="${40 + k * 20}" y1="0" x2="${40 + k * 20}" y2="70" stroke="rgba(255,255,255,.45)" stroke-width="${k === 4 ? 1.4 : .7}"/>`).join('')}
         <line x1="20" y1="0" x2="20" y2="70" stroke="#fff" stroke-width="1.2"/><line x1="220" y1="0" x2="220" y2="70" stroke="#fff" stroke-width="1.2"/>
-        <image href="${logoUrl(a)}" x="108" y="23" width="24" height="24" opacity=".35"/>
+        <image href="${logoUrl(b)}" x="108" y="23" width="24" height="24" opacity=".35"/>
         <ellipse id="g-ball" cx="120" cy="35" rx="5" ry="3.2" fill="#8a4b20" stroke="#fff" stroke-width=".8"/>
       </svg>
       <ul class="plays" id="g-plays"><li>Kickoff!</li></ul>
@@ -344,7 +359,8 @@ function playGame(a, b, game, upset = false) {
     </div>`;
     ov.hidden = false;
     const scA = $('sc-a'), scB = $('sc-b'), qEl = $('g-q'), clockEl = $('g-clock'), plays = $('g-plays'), ball = $('g-ball');
-    const QMS = reduced ? 0 : 1900; // real milliseconds per quarter
+    const QMS = reduced ? 0 : 1900 / SPEED(); // real milliseconds per quarter
+    sfx.whistle();
     const names = ['1st', '2nd', '3rd', '4th'];
     const score = { [a]: 0, [b]: 0 };
     let idx = 0, done = false, raf = 0, t0 = performance.now(), ballX = 120, holdUntil = 0, held = false;
@@ -357,8 +373,12 @@ function playGame(a, b, game, upset = false) {
       const w = score[a] > score[b] ? a : b;
       addPlay(`<b>${upset ? 'UPSET! ' : ''}Final: ${TEAM_BY_ABBR[w].name} win ${Math.max(score[a], score[b])}–${Math.min(score[a], score[b])}</b>`);
       ov.querySelectorAll('.bt')[w === a ? 0 : 1].classList.add('won');
-      const btn = $('g-skip'); btn.textContent = 'Continue'; btn.className = 'btn'; btn.onclick = () => { ov.hidden = true; ov.innerHTML = ''; resolve(); };
-      btn.focus();
+      sfx.horn(); if (upset) sfx.roar(true);
+      const btn = $('g-skip'); btn.textContent = 'Continue'; btn.className = 'btn';
+      let closed = false;
+      const close = () => { if (closed) return; closed = true; ov.hidden = true; ov.innerHTML = ''; resolve(); };
+      btn.onclick = close;
+      if (autoplay) setTimeout(close, 1100 / SPEED()); else btn.focus();
     };
     $('g-skip').onclick = finish;
     if (!QMS) return finish();
@@ -370,6 +390,7 @@ function playGame(a, b, game, upset = false) {
         if (el < at) break;
         score[e.team] += e.pts; scA.textContent = score[a]; scB.textContent = score[b];
         addPlay(`<span class="q">Q${e.q} ${fmtClock(e.clock)}</span> ${playText(e)}`);
+        if (e.pts >= 6) sfx.roar(); else sfx.cheer();
         ballX = e.team === a ? 230 : 10; holdUntil = el + 450; held = true; idx++;
       }
       // ball drifts toward the end zone of whoever scores next; after a score it sits in the end zone briefly, then resets
@@ -387,37 +408,77 @@ function playGame(a, b, game, upset = false) {
     raf = requestAnimationFrame(tick);
   });
 }
-function finishBattle(winner, upset = false) {
-  const { attacker: a, defender: b } = turn, loser = winner === a ? b : a;
-  const names = [...new Set(Object.keys(state.owners).filter(id => state.owners[id] === loser).map(id => STATE_OF[id] === 'DC' ? 'MD' : STATE_OF[id]))].map(c => CODE_TO_NAME[c]);
-  const where = names.length <= 3 ? listJoin(names) : `${names.length} states`;
-  state.owners = conquer(state.owners, winner, loser);
+function finishBattle(winner, upset = false, winnerOdds = null) {
+  const { attacker: a, defender: b, region } = turn, loser = winner === a ? b : a;
+  const up = upset ? '<b class="up">UPSET!</b> ' : '';
+  let story;
+  if (opt('capitals')) {
+    const r = capitalsBattle(state.owners, winner, loser, a, region, CAPITALS, ADJ, CENT);
+    const place = regionName(BY_ID[r.taken]);
+    state.owners = r.owners;
+    if (r.capitalFell) story = `The <b>${TEAM_BY_ABBR[winner].name}</b> capture the ${teamName(loser)}' capital in ${place} and take all their land. The ${teamName(loser)} are out.`;
+    else if (winner === a) story = `The <b>${TEAM_BY_ABBR[winner].name}</b> win and take ${place} from the ${teamName(loser)}.`;
+    else story = `The <b>${TEAM_BY_ABBR[winner].name}</b> hold at home and take ${place} from the ${teamName(loser)}.`;
+    if (!r.capitalFell && !aliveTeams(state.owners).includes(loser)) story += ` The ${teamName(loser)} are out.`;
+  } else {
+    const names = [...new Set(Object.keys(state.owners).filter(id => state.owners[id] === loser).map(id => STATE_OF[id] === 'DC' ? 'MD' : STATE_OF[id]))].map(c => CODE_TO_NAME[c]);
+    const where = names.length <= 3 ? listJoin(names) : `${names.length} states`;
+    state.owners = conquer(state.owners, winner, loser);
+    story = `The <b>${TEAM_BY_ABBR[winner].name}</b> win and take over the ${teamName(loser)}' land in ${where}. The ${teamName(loser)} are out.`;
+  }
   const before = state.strengths[winner];
   state.strengths = boostWinner(state.strengths, winner, loser);
   const grew = state.strengths[winner] > before ? ` Strength ${before} → ${state.strengths[winner]} (beat ${String(state.strengths[loser]).startsWith('8') ? 'an' : 'a'} ${state.strengths[loser]}).` : '';
-  addLog(`${upset ? '<b class="up">UPSET!</b> ' : ''}<b>${teamName(winner)}</b> beat the ${teamName(loser)} and take their land in ${where}.${grew}`);
-  turn = { step: 'done', attacker: a, defender: b, winner, msg: `${upset ? '<b>UPSET!</b> ' : ''}The <b>${TEAM_BY_ABBR[winner].name}</b> win and take over the ${teamName(loser)}' land in ${where}. The ${teamName(loser)} are out.${grew}` + afterMove() };
+  state.records = recordBattle(state.records, { winner, loser, winnerOdds, turn: state.turn + 1 });
+  if (!aliveTeams(state.owners).includes(loser)) state.records = recordElimination(state.records, { team: loser, by: winner, turn: state.turn + 1 });
+  addLog(`${up}${story.replace(/<b>|<\/b>/g, '')}${grew}`);
+  turn = { step: 'done', attacker: a, defender: b, winner, msg: `${upset ? '<b>UPSET!</b> ' : ''}${story}${grew}` + afterMove() };
   syncStrengthInputs();
-  nextTurnCount(); save(); paint(); render();
+  nextTurnCount(); commit(); paint(); render();
   if (upset) showUpset(winner);
   celebrate();
 }
 
+// Save the move: record-book peak, a history snapshot for the replay, then store.
+function commit() {
+  state.records = recordPeak(state.records, stateCounts(state.owners, STATE_OF), state.turn);
+  state.history.push({ t: state.turn, c: encodeOwners(state.owners, REGIONS.map(r => r.id), TEAMS.map(t => t.abbr)) });
+  if (state.history.length > 500) state.history.splice(1, state.history.length - 500);
+  save(); drawReplay(); drawRecords();
+}
+
+function nextTurn() {
+  turn = { step: 'wheel' }; clearAim();
+  if (opt('rebellions')) {
+    const r = pickRebellion(state.owners, TEAMS.map(t => t.abbr), CAPITALS, Math.random, 0.08);
+    if (r) {
+      const from = state.owners[r.region];
+      state.owners = claim(state.owners, r.team, r.region);
+      addLog(`<b class="up">REBELLION!</b> The ${teamName(r.team)} rise up and retake ${regionName(BY_ID[r.region])}${from ? ` from the ${teamName(from)}` : ''}`, `Turn ${state.turn}`);
+      showBanner(r.team, 'REBELLION!');
+      sfx.roar(true);
+      if (from && !aliveTeams(state.owners).includes(from)) state.records = recordElimination(state.records, { team: from, by: r.team, turn: state.turn });
+      commit(); paint();
+    }
+  }
+  render();
+}
+
 // ---------- turn panel ----------
-function teamCard(abbr, pct, extra = '') {
+function teamCard(abbr, pct, extra = '', tag = '') {
   const t = TEAM_BY_ABBR[abbr];
-  return `<div class="side-team ${extra}"><img src="${logoUrl(abbr)}" alt=""><span class="nm">${t.name}</span>${pct != null ? `<span class="pct">${Math.round(pct * 100)}%</span>` : ''}</div>`;
+  return `<div class="side-team ${extra}"><img src="${logoUrl(abbr)}" alt=""><span class="nm">${t.name}</span>${tag ? `<span class="tag">${tag}</span>` : ''}${pct != null ? `<span class="pct">${Math.round(pct * 100)}%</span>` : ''}</div>`;
 }
 function render() {
   const st = $('status'), mu = $('matchup'), ac = $('actions');
   for (const b of document.querySelectorAll('.seg button')) b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode));
   mu.innerHTML = ''; ac.innerHTML = '';
-  const btn = (label, fn, cls = '') => { const b = document.createElement('button'); b.className = `btn ${cls}`; b.textContent = label; b.disabled = busy; b.onclick = fn; ac.appendChild(b); return b; };
+  const btn = (label, fn, cls = '') => { const b = document.createElement('button'); b.className = `btn ${cls}`; b.textContent = label; b.disabled = busy || autoplay || replaying; b.onclick = fn; ac.appendChild(b); return b; };
   const champ = champion(state.owners);
   if (champ) {
     const t = TEAM_BY_ABBR[champ];
     st.innerHTML = `<b>The ${t.name} rule America!</b> Last team standing after ${state.turn} ${state.turn === 1 ? 'turn' : 'turns'}.`;
-    mu.innerHTML = `<div class="matchup" style="grid-template-columns:1fr">${teamCard(champ, null, 'win')}</div>`;
+    mu.innerHTML = `<div class="matchup" style="grid-template-columns:1fr">${teamCard(champ, null, 'win')}</div><ul class="records final">${recordLines().join('')}</ul>`;
     btn('Reset map', doReset);
   } else if (turn.step === 'wheel') {
     st.innerHTML = busy ? 'Spinning…' : 'Spin the wheel to pick who attacks.';
@@ -430,7 +491,7 @@ function render() {
   } else if (turn.step === 'battle') {
     const { attacker: a, defender: b } = turn, [pa, pb] = odds(a, b), showPct = state.mode !== 'pick';
     st.innerHTML = `The arrow points at ${regionName(BY_ID[turn.region])}. Battle!`;
-    mu.innerHTML = `<div class="matchup">${teamCard(a, showPct ? pa : null)}<span class="vs">VS</span>${teamCard(b, showPct ? pb : null)}</div>`;
+    mu.innerHTML = `<div class="matchup">${teamCard(a, showPct ? pa : null, '', 'Away')}<span class="vs">@</span>${teamCard(b, showPct ? pb : null, '', 'Home')}</div>`;
     if (state.mode === 'pick') {
       btn(`${teamName(a)} win`, () => finishBattle(a));
       btn(`${teamName(b)} win`, () => finishBattle(b));
@@ -440,9 +501,10 @@ function render() {
   } else if (turn.step === 'done') {
     st.innerHTML = turn.msg;
     if (turn.winner) mu.innerHTML = `<div class="matchup">${teamCard(turn.attacker, null, turn.winner === turn.attacker ? 'win' : '')}<span class="vs">VS</span>${teamCard(turn.defender, null, turn.winner === turn.defender ? 'win' : '')}</div>`;
-    btn('Next turn', () => { turn = { step: 'wheel' }; clearAim(); render(); });
+    btn('Next turn', nextTurn);
   }
-  $('overlay').hidden = true;
+  if (!$('game-open')) $('overlay').hidden = true;
+  drawAuto();
 }
 // After every claim or battle: empty pockets a single team surrounds become theirs; the last team standing gets everything.
 function afterMove() {
@@ -476,9 +538,11 @@ async function celebrate() {
     for (const id of order) { shown[id] = champ; paint(shown); await sleep(delay); }
   }
   state.owners = fillAll(state.owners, champ);
-  save(); paint();
+  commit(); paint();
   busy = false; render();
   if (!reduced) confetti(TEAM_BY_ABBR[champ]);
+  sfx.roar(true); sfx.horn();
+  stopAuto();
 }
 function confetti(team) {
   const c = document.createElement('canvas');
@@ -497,14 +561,15 @@ function confetti(team) {
   };
   requestAnimationFrame(frame);
 }
-function showUpset(winner) {
+function showUpset(winner) { showBanner(winner, 'UPSET!'); sfx.roar(true); }
+function showBanner(winner, text) {
   const box = $('upset'), field = $('field');
-  box.innerHTML = `<img src="${logoUrl(winner)}" alt=""><span>UPSET!</span>`;
+  box.innerHTML = `<img src="${logoUrl(winner)}" alt=""><span>${text}</span>`;
   box.hidden = false;
   box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
   if (!reduced) { field.classList.remove('shake'); void field.offsetWidth; field.classList.add('shake'); }
-  clearTimeout(showUpset.t);
-  showUpset.t = setTimeout(() => { box.hidden = true; field.classList.remove('shake'); }, 2400);
+  clearTimeout(showBanner.t);
+  showBanner.t = setTimeout(() => { box.hidden = true; field.classList.remove('shake'); }, 2400);
 }
 const listJoin = a => a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`;
 function nextTurnCount() { state.turn++; }
@@ -519,13 +584,31 @@ function addLog(html, label = `Turn ${state.turn + 1}`) { state.log.unshift(`${l
 function drawLog() { $('log').innerHTML = state.log.length ? state.log.map(l => `<li>${l}</li>`).join('') : '<li>No moves yet.</li>'; }
 
 function drawStrengths() {
-  $('strengths').innerHTML = TEAMS.map(t => `<label><img src="${logoUrl(t.abbr)}" alt=""><span>${t.name}</span><input type="number" min="1" max="10" step="0.1" id="str-${t.abbr}" value="${state.strengths[t.abbr]}"></label>`).join('');
-  for (const t of TEAMS) $(`str-${t.abbr}`).addEventListener('change', e => {
-    const v = Math.max(1, Math.min(10, Math.round((+e.target.value || 1) * 10) / 10));
-    e.target.value = v; state.strengths[t.abbr] = v; save(); render();
-  });
+  const useWL = opt('useRecords');
+  $('opt-records').checked = useWL;
+  $('strengths').innerHTML = TEAMS.map(t => {
+    const [w, l] = state.wl[t.abbr] || ['', ''];
+    return useWL
+      ? `<label class="wl"><img src="${logoUrl(t.abbr)}" alt=""><span>${t.name}</span><input type="number" min="0" max="17" id="w-${t.abbr}" value="${w}" aria-label="${t.name} wins"><span class="dash">–</span><input type="number" min="0" max="17" id="l-${t.abbr}" value="${l}" aria-label="${t.name} losses"><output id="str-${t.abbr}">${state.strengths[t.abbr]}</output></label>`
+      : `<label><img src="${logoUrl(t.abbr)}" alt=""><span>${t.name}</span><input type="number" min="1" max="10" step="0.1" id="str-${t.abbr}" value="${state.strengths[t.abbr]}"></label>`;
+  }).join('');
+  for (const t of TEAMS) {
+    if (useWL) {
+      const upd = () => {
+        const w = Math.max(0, Math.round(+$(`w-${t.abbr}`).value || 0)), l = Math.max(0, Math.round(+$(`l-${t.abbr}`).value || 0));
+        state.wl[t.abbr] = [w, l];
+        const v = strengthFromRecord(w, l);
+        if (v != null) { state.strengths[t.abbr] = v; $(`str-${t.abbr}`).textContent = v; }
+        save(); render();
+      };
+      $(`w-${t.abbr}`).addEventListener('change', upd); $(`l-${t.abbr}`).addEventListener('change', upd);
+    } else $(`str-${t.abbr}`).addEventListener('change', e => {
+      const v = Math.max(1, Math.min(10, Math.round((+e.target.value || 1) * 10) / 10));
+      e.target.value = v; state.strengths[t.abbr] = v; save(); render();
+    });
+  }
 }
-function syncStrengthInputs() { for (const t of TEAMS) { const i = $(`str-${t.abbr}`); if (i) i.value = state.strengths[t.abbr]; } }
+function syncStrengthInputs() { for (const t of TEAMS) { const i = $(`str-${t.abbr}`); if (i) { if ('value' in i && i.tagName === 'INPUT') i.value = state.strengths[t.abbr]; else i.textContent = state.strengths[t.abbr]; } } }
 function drawAssign() {
   const s = $('assign');
   s.innerHTML = `<option value="">Off</option>` + TEAMS.map(t => `<option value="${t.abbr}">${t.name}</option>`).join('') + `<option value="__blank">Nobody (make it blank)</option>`;
@@ -533,7 +616,7 @@ function drawAssign() {
 }
 function onRegionClick(id) {
   const v = $('assign').value;
-  if (!v || busy) return;
+  if (!v || busy || autoplay || replaying) return;
   const team = v === '__blank' ? null : v, before = state.owners[id];
   if (before === team) return;
   state.owners = claim(state.owners, team, id);
@@ -542,19 +625,29 @@ function onRegionClick(id) {
   if ((turn.attacker && !alive.has(turn.attacker)) || (turn.defender && turn.step === 'battle' && !alive.has(turn.defender))) { turn = { step: 'wheel' }; clearAim(); }
   else if (turn.step === 'arrow') drawArrow(turn.attacker, arrowRot);
   if (champion(state.owners)) pendingChamp = champion(state.owners);
-  save(); paint(); render();
+  commit(); paint(); render();
   celebrate();
 }
 
 // ---------- state ----------
-function fresh() {
-  return { owners: initialOwners(REGIONS), strengths: Object.fromEntries(TEAMS.map(t => [t.abbr, t.strength])), mode: 'pick', log: [], turn: 0 };
+const DEFAULT_OPTIONS = { sound: false, capitals: false, rebellions: false, useRecords: false };
+function startStrengths(options, wl) {
+  return Object.fromEntries(TEAMS.map(t => {
+    const fromWL = options.useRecords && wl[t.abbr] ? strengthFromRecord(...wl[t.abbr]) : null;
+    return [t.abbr, fromWL ?? t.strength];
+  }));
+}
+function fresh(keep = {}) {
+  const options = { ...DEFAULT_OPTIONS, ...(keep.options || {}) }, wl = keep.wl || {};
+  const owners = initialOwners(REGIONS);
+  return { owners, strengths: startStrengths(options, wl), mode: keep.mode || 'pick', log: [], turn: 0, options, wl, records: {},
+    history: [{ t: 0, c: encodeOwners(owners, REGIONS.map(r => r.id), TEAMS.map(t => t.abbr)) }] };
 }
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE));
     // saved games from older versions may have extra regions (Alaska, Hawaii): keep only today's regions
-    if (s && s.owners && REGIONS.every(r => r.id in s.owners)) return { ...fresh(), ...s, owners: Object.fromEntries(REGIONS.map(r => [r.id, s.owners[r.id]])) };
+    if (s && s.owners && REGIONS.every(r => r.id in s.owners)) { const f = fresh(s); return { ...f, ...s, options: f.options, wl: f.wl, records: s.records || {}, history: s.history && s.history.length ? s.history : f.history, owners: Object.fromEntries(REGIONS.map(r => [r.id, s.owners[r.id]])) }; }
   } catch {}
   return fresh();
 }
@@ -562,9 +655,126 @@ function save() { try { localStorage.setItem(STORE, JSON.stringify(state)); } ca
 
 let resetArmed = null;
 function doReset() {
-  state = fresh(); turn = { step: 'wheel' }; wheelRot = 0; arrowRot = 0;
-  clearAim(); save(); drawStrengths(); paint(); render();
+  stopAuto(); exitReplay(false);
+  state = fresh(state); turn = { step: 'wheel' }; wheelRot = 0; arrowRot = 0;
+  clearAim(); save(); drawStrengths(); paint(); render(); drawReplay(); drawRecords();
 }
+
+// ---------- options ----------
+function wireOptions() {
+  for (const k of ['sound', 'capitals', 'rebellions']) {
+    const box = $(`opt-${k}`);
+    box.checked = opt(k);
+    box.onchange = () => { state.options[k] = box.checked; if (k === 'sound' && box.checked) { ac(); sfx.whistle(); } save(); paint(); render(); };
+  }
+  $('opt-records').onchange = e => {
+    state.options.useRecords = e.target.checked;
+    if (e.target.checked) for (const t of TEAMS) { const wl = state.wl[t.abbr]; const v = wl ? strengthFromRecord(...wl) : null; if (v != null) state.strengths[t.abbr] = v; }
+    save(); drawStrengths(); render();
+  };
+  $('auto-btn').onclick = () => autoplay ? stopAuto() : startAuto();
+  $('auto-speed').onchange = e => { autoSpeed = +e.target.value; };
+  $('replay-slider').oninput = e => showReplay(+e.target.value);
+  $('replay-play').onclick = playReplay;
+  $('replay-exit').onclick = () => exitReplay(true);
+}
+
+// ---------- sound (made in the browser, no files) ----------
+let AC = null;
+function ac() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); return AC; }
+function tone(freq, dur, type = 'sine', gain = 0.12, when = 0) {
+  const a = ac(), o = a.createOscillator(), g = a.createGain(), t = a.currentTime + when;
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t + dur + 0.05);
+}
+function noise(dur, gain, freq) {
+  const a = ac(), n = Math.floor(a.sampleRate * dur), buf = a.createBuffer(1, n, a.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain(), t = a.currentTime;
+  src.buffer = buf; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 0.5;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f).connect(g).connect(a.destination); src.start();
+}
+const sfx = {
+  whistle() { if (!opt('sound')) return; for (let i = 0; i < 6; i++) tone(2700 + (i % 2) * 260, 0.07, 'sine', 0.07, i * 0.07); },
+  roar(big) { if (!opt('sound')) return; noise(big ? 2.2 : 1.2, big ? 0.55 : 0.3, 800); },
+  cheer() { if (!opt('sound')) return; noise(0.6, 0.14, 1300); },
+  horn() { if (!opt('sound')) return; [110, 138.6, 164.8].forEach(f => tone(f, 1.1, 'sawtooth', 0.06)); },
+};
+
+// ---------- auto-play ----------
+function drawAuto() {
+  const b = $('auto-btn'); if (!b) return;
+  const can = state.mode !== 'pick' && !champion(state.owners) && !replaying;
+  b.textContent = autoplay ? 'Stop auto-play' : 'Auto-play';
+  b.className = autoplay ? 'btn danger' : 'btn ghost';
+  b.disabled = !autoplay && (!can || busy);
+  $('auto-hint').hidden = state.mode !== 'pick';
+}
+function startAuto() { if (state.mode === 'pick') return; autoplay = true; render(); autoLoop(); }
+function stopAuto() { autoplay = false; if (state) render(); }
+async function autoLoop() {
+  while (autoplay && !champion(state.owners)) {
+    if (busy) { await sleep(100); continue; }
+    if (turn.step === 'wheel') await spinWheel();
+    else if (turn.step === 'arrow') await spinArrow();
+    else if (turn.step === 'battle') await fight();
+    else if (turn.step === 'done') { await sleep(1400 / autoSpeed); if (autoplay) nextTurn(); }
+    await sleep(300 / autoSpeed);
+  }
+  autoplay = false; render();
+}
+
+// ---------- history replay ----------
+function drawReplay() {
+  const sl = $('replay-slider'); if (!sl || !state) return;
+  const n = state.history.length;
+  sl.max = Math.max(0, n - 1);
+  if (!replaying) sl.value = n - 1;
+  $('replay-label').textContent = replaying ? `Turn ${state.history[+sl.value].t} of ${state.turn}` : `${n - 1} ${n - 1 === 1 ? 'move' : 'moves'} recorded`;
+  $('replay-exit').hidden = !replaying;
+  sl.disabled = n < 2; $('replay-play').disabled = n < 2;
+}
+function showReplay(i) {
+  if (busy || autoplay) return;
+  replaying = true; clearAim();
+  $('replay-slider').value = i;
+  paint(decodeOwners(state.history[i].c, REGIONS.map(r => r.id), TEAMS.map(t => t.abbr)));
+  drawReplay(); render();
+}
+let replayTimer = null;
+async function playReplay() {
+  if (busy || autoplay) return;
+  if (replayTimer) { clearTimeout(replayTimer); replayTimer = null; $('replay-play').textContent = 'Play'; return; }
+  let i = replaying && +$('replay-slider').value < state.history.length - 1 ? +$('replay-slider').value : 0;
+  $('replay-play').textContent = 'Pause';
+  const step = () => {
+    showReplay(i);
+    if (++i < state.history.length) replayTimer = setTimeout(step, 450);
+    else { replayTimer = null; $('replay-play').textContent = 'Play'; }
+  };
+  step();
+}
+function exitReplay(redraw) {
+  if (replayTimer) { clearTimeout(replayTimer); replayTimer = null; }
+  const b = $('replay-play'); if (b) b.textContent = 'Play';
+  if (!replaying) return;
+  replaying = false;
+  if (redraw) { paint(); drawReplay(); render(); }
+}
+
+// ---------- record book ----------
+function recordLines() {
+  const r = state.records || {}, nm = a => TEAM_BY_ABBR[a].name;
+  return [
+    `<li><span>Biggest upset</span><b>${r.upset ? `${nm(r.upset.team)} over the ${teamName(r.upset.vs)} (${r.upset.pct}%)` : '—'}</b></li>`,
+    `<li><span>Longest win streak</span><b>${r.streak ? `${nm(r.streak.team)}, ${r.streak.n} ${r.streak.n === 1 ? 'win' : 'wins'}` : '—'}</b></li>`,
+    `<li><span>Most states at once</span><b>${r.peak && r.peak.n > 1 ? `${nm(r.peak.team)}, ${r.peak.n} states` : '—'}</b></li>`,
+    `<li><span>Fastest knockout</span><b>${r.fastestOut ? `${nm(r.fastestOut.team)} on turn ${r.fastestOut.turn} (by the ${teamName(r.fastestOut.by)})` : '—'}</b></li>`,
+  ];
+}
+function drawRecords() { const e = $('records'); if (e && state) e.innerHTML = recordLines().join(''); }
 
 async function boot() {
   const topo = await (await fetch('states-10m.json')).json();
@@ -576,11 +786,12 @@ async function boot() {
   LABEL.fill(-1);
   REGIONS.forEach((r, i) => { for (const [x, y] of r.pts) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) { const gx = x + dx, gy = y + dy; if (gx < W && gy < H) LABEL[gy * W + gx] = i; } });
   await Promise.all(TEAMS.map(t => new Promise(res => { const im = new Image(); im.onload = im.onerror = res; im.src = logoUrl(t.abbr); })));
+  for (const t of TEAMS) CAPITALS[t.abbr] = REGIONS.find(r => r.team === t.abbr && r.state !== 'DC').id;
   drawMap(built);
   state = load();
   $('loading').hidden = true;
-  drawStrengths(); drawAssign();
-  for (const b of document.querySelectorAll('.seg button')) b.onclick = () => { state.mode = b.dataset.mode; save(); render(); };
+  drawStrengths(); drawAssign(); wireOptions(); drawReplay(); drawRecords();
+  for (const b of document.querySelectorAll('.seg button')) b.onclick = () => { state.mode = b.dataset.mode; if (state.mode === 'pick') stopAuto(); save(); render(); };
   $('reset').onclick = () => {
     const b = $('reset');
     if (resetArmed) { clearTimeout(resetArmed); resetArmed = null; b.textContent = 'Reset map'; b.className = 'btn ghost'; doReset(); return; }

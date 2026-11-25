@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { battleOdds, capitalsBattle, pickRebellion, recordBattle, recordPeak, recordElimination, strengthFromRecord, encodeOwners, decodeOwners, isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
 import { TEAMS } from '../teams.js';
 
 const regions = [
@@ -28,11 +28,6 @@ test('claim of blank region is not a battle and keeps everyone alive', () => {
   const o = claim(initialOwners(regions), 'wsh', 'C');
   assert.equal(o.C, 'wsh');
   assert.deepEqual(aliveTeams(o).sort(), ['bal', 'wsh']);
-});
-test('weighted battle uses a/(a+b)', () => {
-  const s = { bal: 7, wsh: 3 };
-  assert.equal(resolveBattle('bal', 'wsh', 'weighted', s, () => 0.69), 'bal');
-  assert.equal(resolveBattle('bal', 'wsh', 'weighted', s, () => 0.71), 'wsh');
 });
 test('fifty battle splits at 0.5; pick returns null', () => {
   assert.equal(resolveBattle('bal', 'wsh', 'fifty', {}, () => 0.49), 'bal');
@@ -144,18 +139,84 @@ test('simulateGame: winner always ends ahead, points are real football scores, q
     assert.deepEqual(total, g.score);
   }
 });
-test('isUpset: only in weighted mode, when the winner had under 35% odds', () => {
-  const s = { ten: 2, kc: 8, dal: 5, hou: 6 };
-  assert.equal(isUpset('ten', 'kc', s, 'weighted'), true);   // 20%
-  assert.equal(isUpset('kc', 'ten', s, 'weighted'), false);
-  assert.equal(isUpset('dal', 'hou', s, 'weighted'), false); // 45%
-  assert.equal(isUpset('ten', 'kc', s, 'fifty'), false);
-  assert.equal(isUpset('ten', 'kc', s, 'pick'), false);
-});
 test('spreadOrder: layers of land outward from the team, nearest first', () => {
   const o = { A: 'x', B: null, C: null, D: null, E: 'x' };
   const adj = [['A', 'B'], ['B', 'C'], ['C', 'D']];
   assert.deepEqual(spreadOrder(o, 'x', adj), [['B'], ['C'], ['D']]);
   // land not connected to the team still gets filled, in a last layer
   assert.deepEqual(spreadOrder({ A: 'x', Z: null }, 'x', []), [['Z']]);
+});
+
+test('battleOdds: defender is home and gets +5 points in weighted; 50/50 stays even', () => {
+  const s = { bal: 7, wsh: 3 };
+  const [pa, pd] = battleOdds('bal', 'wsh', 'weighted', s);
+  assert.equal(Math.round(pa * 100), 65); assert.equal(Math.round(pd * 100), 35);
+  assert.deepEqual(battleOdds('bal', 'wsh', 'fifty', s), [0.5, 0.5]);
+});
+test('resolveBattle uses home-field odds (attacker 65%)', () => {
+  const s = { bal: 7, wsh: 3 };
+  assert.equal(resolveBattle('bal', 'wsh', 'weighted', s, () => 0.64), 'bal');
+  assert.equal(resolveBattle('bal', 'wsh', 'weighted', s, () => 0.66), 'wsh');
+  assert.equal(resolveBattle('bal', 'wsh', 'fifty', {}, () => 0.49), 'bal');
+  assert.equal(resolveBattle('bal', 'wsh', 'pick', {}, () => 0.1), null);
+});
+test('isUpset: weighted only, winner had under 35% after home field', () => {
+  const s = { ten: 2, kc: 8, dal: 5, hou: 6 };
+  assert.equal(isUpset('ten', 'ten', 'kc', 'weighted', s), true);    // attacker ten: 20% - 5 = 15%
+  assert.equal(isUpset('kc', 'ten', 'kc', 'weighted', s), false);
+  assert.equal(isUpset('dal', 'dal', 'hou', 'weighted', s), false);  // 45% - 5 = 40%
+  assert.equal(isUpset('ten', 'ten', 'kc', 'fifty', s), false);
+});
+test('capitalsBattle: attacker win takes only the target, or everything if it was the capital', () => {
+  const o = { A1: 'a', A2: 'a', B1: 'b', B2: 'b' };
+  const caps = { a: 'A1', b: 'B2' };
+  const adj = [['A1', 'A2'], ['A2', 'B1'], ['B1', 'B2']];
+  const c = { A1: [0, 0], A2: [1, 0], B1: [2, 0], B2: [3, 0] };
+  let r = capitalsBattle(o, 'a', 'b', 'a', 'B1', caps, adj, c);
+  assert.deepEqual(r.owners, { A1: 'a', A2: 'a', B1: 'a', B2: 'b' }); assert.equal(r.capitalFell, false);
+  r = capitalsBattle({ ...o, B1: 'a' }, 'a', 'b', 'a', 'B2', caps, adj, c);
+  assert.equal(r.capitalFell, true); assert.equal(r.owners.B2, 'a');
+});
+test('capitalsBattle: defender win takes the attacker region it touched; capital there knocks attacker out', () => {
+  const o = { A1: 'a', A2: 'a', B1: 'b' };
+  const caps = { a: 'A1', b: 'B1' };
+  const adj = [['A1', 'A2'], ['A2', 'B1']];
+  const c = { A1: [0, 0], A2: [1, 0], B1: [2, 0] };
+  let r = capitalsBattle(o, 'b', 'a', 'a', 'B1', caps, adj, c);
+  assert.deepEqual(r.owners, { A1: 'a', A2: 'b', B1: 'b' }); assert.equal(r.capitalFell, false);
+  r = capitalsBattle({ A1: 'a', B1: 'b' }, 'b', 'a', 'a', 'B1', caps, [['A1', 'B1']], c);
+  assert.deepEqual(r.owners, { A1: 'b', B1: 'b' }); assert.equal(r.capitalFell, true);
+});
+test('pickRebellion: an eliminated team rises up in its home region, only when the dice say so', () => {
+  const o = { MO: 'den', CO: 'den', NE: null };
+  const caps = { kc: 'MO', den: 'CO' };
+  assert.deepEqual(pickRebellion(o, ['kc', 'den'], caps, () => 0.01, 0.08), { team: 'kc', region: 'MO' });
+  assert.equal(pickRebellion(o, ['kc', 'den'], caps, () => 0.5, 0.08), null);
+  assert.equal(pickRebellion({ MO: 'kc', CO: 'den' }, ['kc', 'den'], caps, () => 0.01, 0.08), null); // nobody eliminated
+});
+test('record book: biggest upset, longest streak, most states, fastest elimination', () => {
+  let r = {};
+  r = recordBattle(r, { winner: 'ten', loser: 'kc', winnerOdds: 0.15, turn: 3 });
+  r = recordBattle(r, { winner: 'ten', loser: 'den', winnerOdds: 0.4, turn: 4 });
+  r = recordBattle(r, { winner: 'buf', loser: 'ten', winnerOdds: 0.6, turn: 5 });
+  assert.equal(r.upset.team, 'ten'); assert.equal(r.upset.pct, 15);
+  assert.deepEqual(r.streak, { team: 'ten', n: 2 });
+  assert.equal(r.current.ten, 0); assert.equal(r.current.buf, 1);
+  r = recordPeak(r, { buf: 4, ten: 2 }, 5);
+  assert.deepEqual(r.peak, { team: 'buf', n: 4, turn: 5 });
+  r = recordElimination(r, { team: 'kc', by: 'ten', turn: 3 });
+  r = recordElimination(r, { team: 'den', by: 'ten', turn: 4 });
+  assert.deepEqual(r.fastestOut, { team: 'kc', by: 'ten', turn: 3 });
+});
+test('strengthFromRecord: 1 + 9 x win percentage', () => {
+  assert.equal(strengthFromRecord(10, 2), 8.5);
+  assert.equal(strengthFromRecord(0, 12), 1);
+  assert.equal(strengthFromRecord(0, 0), null);
+});
+test('encode/decode owners round trip', () => {
+  const ids = ['A', 'B', 'C'], teams = ['bal', 'wsh'];
+  const o = { A: 'wsh', B: null, C: 'bal' };
+  const code = encodeOwners(o, ids, teams);
+  assert.equal(typeof code, 'string'); assert.equal(code.length, 3);
+  assert.deepEqual(decodeOwners(code, ids, teams), o);
 });

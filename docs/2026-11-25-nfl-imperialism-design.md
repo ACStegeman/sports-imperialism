@@ -38,3 +38,13 @@ A personal "NFL imperialism" game: a US map with state lines where every NFL tea
 
 ## Calls I made (user can change)
 Arrow targeting rule, winner-takes-all + elimination, starting strength values, ESPN logos, localStorage save.
+
+## Added 2026-11-25 (round 4)
+- Home field: the defender is always home; +5 points to the home team in Weighted mode (50/50 stays even). Battle card and game scoreboard show Away @ Home.
+- Sound (option, off by default): whistle at kickoff, crowd on scores, horn at the final, big roar on upsets/rebellions/champion. Made with Web Audio, no files.
+- Capitals (option): each team's home region has a star. A battle wins only the land fought over (target if the attacker wins; the attacker's touching region if the defender wins). Taking a capital takes everything.
+- Rebellions (option): at each Next turn, 8% chance a knocked-out team retakes its home region and rejoins the wheel.
+- Replay: every move is saved as a snapshot; a slider and Play button replay the map; Back to game returns.
+- Record book: biggest upset, longest win streak, most states at once, fastest knockout. Shown in the sidebar and on the champion banner.
+- Auto-play (50/50 and Weighted): plays turns by itself at 1x-8x; stops at a champion.
+- Real records (option in Team strength): type W-L; strength = 1 + 9 x win %.

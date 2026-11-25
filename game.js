@@ -15,10 +15,18 @@ export function claim(owners, team, regionId) {
   return { ...owners, [regionId]: team };
 }
 
+// Win chances [attacker, defender]. The defender is always home: +5 points in weighted mode.
+export const HOME_EDGE = 0.05;
+export function battleOdds(attacker, defender, mode, strengths) {
+  if (mode !== 'weighted') return [0.5, 0.5];
+  const sa = strengths[attacker], sd = strengths[defender];
+  const pd = Math.min(0.95, sd / (sa + sd) + HOME_EDGE);
+  return [1 - pd, pd];
+}
+
 export function resolveBattle(a, b, mode, strengths, rng = Math.random) {
   if (mode === 'pick') return null;
-  const pa = mode === 'weighted' ? strengths[a] / (strengths[a] + strengths[b]) : 0.5;
-  return rng() < pa ? a : b;
+  return rng() < battleOdds(a, b, mode, strengths)[0] ? a : b;
 }
 
 export function teamCentroid(team, centroids, owners) {
@@ -161,11 +169,11 @@ export function simulateGame(winner, loser, rng = Math.random) {
   return { events, score };
 }
 
-// An upset: in weighted mode, the winner had less than a 35% chance.
-export function isUpset(winner, loser, strengths, mode) {
+// An upset: in weighted mode, the winner had less than a 35% chance (home field included).
+export function isUpset(winner, attacker, defender, mode, strengths) {
   if (mode !== 'weighted') return false;
-  const w = strengths[winner], l = strengths[loser];
-  return w / (w + l) < 0.35;
+  const [pa, pd] = battleOdds(attacker, defender, mode, strengths);
+  return (winner === attacker ? pa : pd) < 0.35;
 }
 
 // For the champion's victory lap: land not yet theirs, in rings spreading out from their territory.
@@ -185,3 +193,60 @@ export function spreadOrder(owners, team, adjacency) {
   if (rest.length) layers.push(rest);
   return layers;
 }
+
+// Capitals mode. The winner takes only the land fought over: the arrow's target if the attacker wins,
+// or the attacker's region touching the target if the defender wins. Taking a capital takes everything.
+export function capitalsBattle(owners, winner, loser, attacker, targetId, capitals, adjacency, centroids) {
+  let take;
+  if (winner === attacker) take = targetId;
+  else {
+    const mine = Object.keys(owners).filter(id => owners[id] === loser);
+    const touching = mine.filter(id => adjacency.some(([a, b]) => (a === id && b === targetId) || (b === id && a === targetId)));
+    const pool = touching.length ? touching : mine;
+    const [tx, ty] = centroids[targetId];
+    take = pool.sort((p, q) => Math.hypot(centroids[p][0] - tx, centroids[p][1] - ty) - Math.hypot(centroids[q][0] - tx, centroids[q][1] - ty))[0];
+  }
+  const capitalFell = take === capitals[loser];
+  const o = { ...owners };
+  if (capitalFell) { for (const id in o) if (o[id] === loser) o[id] = winner; }
+  else o[take] = winner;
+  return { owners: o, taken: take, capitalFell };
+}
+
+// Rebellions: with probability `chance`, one eliminated team retakes its home region.
+export function pickRebellion(owners, allTeams, capitals, rng = Math.random, chance = 0.08) {
+  const alive = new Set(Object.values(owners).filter(Boolean));
+  const out = allTeams.filter(t => !alive.has(t) && capitals[t] in owners);
+  if (!out.length || rng() >= chance) return null;
+  const team = out[Math.floor(rng() * out.length) % out.length];
+  return { team, region: capitals[team] };
+}
+
+// Record book.
+export function recordBattle(records, { winner, loser, winnerOdds, turn }) {
+  const r = { ...records, current: { ...(records.current || {}) } };
+  r.current[winner] = (r.current[winner] || 0) + 1;
+  r.current[loser] = 0;
+  if (!r.streak || r.current[winner] > r.streak.n) r.streak = { team: winner, n: r.current[winner] };
+  if (winnerOdds != null && winnerOdds < 0.5 && (!r.upset || winnerOdds * 100 < r.upset.pct)) r.upset = { team: winner, vs: loser, pct: Math.round(winnerOdds * 100), turn };
+  return r;
+}
+export function recordPeak(records, counts, turn) {
+  let r = records;
+  for (const [team, n] of Object.entries(counts)) if (!r.peak || n > r.peak.n) r = { ...r, peak: { team, n, turn } };
+  return r;
+}
+export function recordElimination(records, { team, by, turn }) {
+  if (records.fastestOut && records.fastestOut.turn <= turn) return records;
+  return { ...records, fastestOut: { team, by, turn } };
+}
+
+// Strength from a real win-loss record: 1 + 9 x win percentage.
+export function strengthFromRecord(w, l) {
+  const g = w + l;
+  return g ? Math.round((1 + 9 * w / g) * 10) / 10 : null;
+}
+
+// Compact map snapshots for the history replay: one character per region.
+export const encodeOwners = (owners, ids, teams) => ids.map(id => owners[id] ? String.fromCharCode(65 + teams.indexOf(owners[id])) : '.').join('');
+export const decodeOwners = (code, ids, teams) => Object.fromEntries(ids.map((id, i) => [id, code[i] === '.' ? null : teams[code.charCodeAt(i) - 65]]));

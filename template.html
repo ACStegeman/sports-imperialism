@@ -111,6 +111,30 @@ details summary { cursor: pointer; }
 @keyframes shake { 0%,100% { transform: none } 15% { transform: translate(-8px, 3px) rotate(-.6deg) } 30% { transform: translate(7px, -4px) rotate(.5deg) } 45% { transform: translate(-6px, 2px) } 60% { transform: translate(5px, -2px) } 80% { transform: translate(-2px, 1px) } }
 .confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 30; }
 .log .up { color: var(--gold); }
+.auto { display: flex; gap: 8px; align-items: center; }
+.auto .btn { flex: 1; padding: 9px 12px; font-size: 15px; }
+.speed { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--chalk-dim); }
+.speed select { width: auto; padding: 7px; }
+.toggle { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: start; cursor: pointer; }
+.toggle input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--gold); }
+.toggle span { font-size: 13px; color: var(--chalk-dim); line-height: 1.4; }
+.toggle b { display: block; color: var(--chalk); font-size: 14px; font-weight: 600; }
+.records { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.records li { display: flex; flex-direction: column; gap: 1px; }
+.records span { color: var(--chalk-dim); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+.records b { font-weight: 600; }
+.records.final { margin-top: 12px; text-align: left; }
+.replay-row { display: flex; align-items: center; gap: 10px; }
+.replay-row .btn { padding: 8px 14px; font-size: 15px; }
+input[type=range] { width: 100%; accent-color: var(--gold); }
+.side-team .tag { font: 700 11px var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--chalk-dim); }
+.side-team.win .tag { color: #1d1503; }
+.bt span small { display: block; font-size: 10px; letter-spacing: .1em; color: var(--chalk-dim); }
+.bt.won span small { color: #1d1503; }
+.capital { fill: var(--gold); stroke: #1d1503; stroke-width: 1; stroke-linejoin: round; pointer-events: auto; }
+.strengths label.wl { grid-template-columns: 22px 1fr 46px 8px 46px 34px; }
+.strengths .dash { color: var(--chalk-dim); text-align: center; }
+.strengths output { font-variant-numeric: tabular-nums; color: var(--gold); text-align: right; font-weight: 600; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--chalk-dim); }
 @media (prefers-reduced-motion: reduce) { .region { transition: none; } .region.target { animation: none; } }
 </style>
@@ -142,6 +166,20 @@ details summary { cursor: pointer; }
       <p class="status" id="status"></p>
       <div id="matchup"></div>
       <div class="row" id="actions"></div>
+      <div class="auto">
+        <button class="btn ghost" id="auto-btn">Auto-play</button>
+        <label class="speed">Speed
+          <select id="auto-speed" aria-label="Auto-play speed"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option><option value="8">8×</option></select>
+        </label>
+      </div>
+      <p class="hint" id="auto-hint" hidden>Auto-play works in 50 / 50 and Weighted mode.</p>
+    </section>
+
+    <section class="card">
+      <p class="label">Options</p>
+      <label class="toggle"><input type="checkbox" id="opt-sound"><span><b>Sound</b>Whistle, crowd and horn during games.</span></label>
+      <label class="toggle"><input type="checkbox" id="opt-capitals"><span><b>Capitals</b>A battle wins only the state fought over. Take a team's capital (the star) and you take everything.</span></label>
+      <label class="toggle"><input type="checkbox" id="opt-rebellions"><span><b>Rebellions</b>Each turn, a knocked-out team has a small chance to rise up and retake its home state.</span></label>
     </section>
 
     <section class="card">
@@ -161,8 +199,21 @@ details summary { cursor: pointer; }
     </section>
 
     <section class="card">
+      <p class="label">Record book</p>
+      <ul class="records" id="records"></ul>
+    </section>
+
+    <section class="card">
+      <p class="label">Replay</p>
+      <input type="range" id="replay-slider" min="0" max="0" value="0" aria-label="Replay position">
+      <div class="replay-row"><button class="btn ghost" id="replay-play">Play</button><span class="hint" id="replay-label"></span></div>
+      <button class="btn" id="replay-exit" hidden>Back to game</button>
+    </section>
+
+    <section class="card">
       <details>
         <summary class="label">Team strength (weighted mode)</summary>
+        <label class="toggle" style="margin-top:10px"><input type="checkbox" id="opt-records"><span><b>Set from real records</b>Type each team's wins and losses. Strength = 1 + 9 × win %.</span></label>
         <div class="strengths" id="strengths"></div>
       </details>
     </section>
