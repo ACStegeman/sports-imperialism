@@ -10,7 +10,7 @@ const el = (tag, attrs = {}, parent) => { const e = document.createElementNS(SVG
 const teamName = a => TEAM_BY_ABBR[a].name.split(' ').slice(-1)[0];
 const regionName = r => r.clip ? `${r.state === 'DC' ? 'DC' : CODE_TO_NAME[r.state]} (${teamName(r.team)} part)` : CODE_TO_NAME[r.state];
 
-let REGIONS = [], BY_ID = {}, CENT = {};
+let REGIONS = [], BY_ID = {}, CENT = {}, STATE_OF = {};
 let state = null; // { owners, strengths, mode, log, turn }
 let turn = { step: 'wheel' }; // wheel | arrow | battle | done
 let wheelRot = 0, arrowRot = 0, busy = false;
@@ -295,10 +295,11 @@ async function fight() {
 }
 function finishBattle(winner) {
   const { attacker: a, defender: b } = turn, loser = winner === a ? b : a;
-  const taken = Object.keys(state.owners).filter(id => state.owners[id] === loser).length;
+  const names = [...new Set(Object.keys(state.owners).filter(id => state.owners[id] === loser).map(id => STATE_OF[id] === 'DC' ? 'MD' : STATE_OF[id]))].map(c => CODE_TO_NAME[c]);
+  const where = names.length <= 3 ? listJoin(names) : `${names.length} states`;
   state.owners = conquer(state.owners, winner, loser);
-  addLog(`<b>${teamName(winner)}</b> beat the ${teamName(loser)} and take ${taken} ${taken === 1 ? 'state' : 'states'}`);
-  turn = { step: 'done', attacker: a, defender: b, winner, msg: `The <b>${TEAM_BY_ABBR[winner].name}</b> win and take over ${taken === 1 ? `the ${teamName(loser)}' only state` : `all ${taken} of the ${teamName(loser)}' states`}. The ${teamName(loser)} are out.` };
+  addLog(`<b>${teamName(winner)}</b> beat the ${teamName(loser)} and take their land in ${where}`);
+  turn = { step: 'done', attacker: a, defender: b, winner, msg: `The <b>${TEAM_BY_ABBR[winner].name}</b> win and take over the ${teamName(loser)}' land in ${where}. The ${teamName(loser)} are out.` };
   nextTurnCount(); save(); paint(); render();
 }
 
@@ -341,12 +342,12 @@ function render() {
     $('again').onclick = doReset;
   }
 }
+const listJoin = a => a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`;
 function nextTurnCount() { state.turn++; }
 
 // ---------- side panels ----------
 function drawStandings() {
-  const counts = {};
-  for (const o of Object.values(state.owners)) if (o) counts[o] = (counts[o] || 0) + 1;
+  const counts = stateCounts(state.owners, STATE_OF);
   const top = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 6);
   $('standings').innerHTML = top.map(([a, n]) => `<li><img src="${logoUrl(a)}" alt=""><span>${TEAM_BY_ABBR[a].name}</span><span class="n">${n} ${n === 1 ? 'state' : 'states'}</span></li>`).join('');
 }
@@ -403,6 +404,7 @@ async function boot() {
   const built = buildRegions(topo);
   REGIONS = built.regions;
   BY_ID = Object.fromEntries(REGIONS.map(r => [r.id, r]));
+  STATE_OF = Object.fromEntries(REGIONS.map(r => [r.id, r.state]));
   CENT = Object.fromEntries(REGIONS.map(r => [r.id, r.at]));
   drawMap(built);
   state = load();

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
 import { TEAMS } from '../teams.js';
 
 const regions = [
@@ -82,4 +82,10 @@ test('territories groups touching land of one team; separate pieces stay separat
     { team: 'lv', ids: ['ID', 'NV', 'UT'] },
     { team: 'sea', ids: ['OR'] },
   ]);
+});
+test('stateCounts counts each state once per team, DC counts as Maryland', () => {
+  const stateOf = { 'NY-buf': 'NY', 'NY-nyj': 'NY', 'NY-nyg': 'NY', 'MD-wsh': 'MD', 'MD-bal': 'MD', DC: 'DC', PA: 'PA' };
+  assert.deepEqual(stateCounts({ 'NY-buf': 'buf', 'NY-nyj': 'nyj', 'NY-nyg': 'nyg', 'MD-wsh': 'wsh', DC: 'wsh', 'MD-bal': 'bal', PA: null }, stateOf),
+    { buf: 1, nyj: 1, nyg: 1, wsh: 1, bal: 1 });
+  assert.deepEqual(stateCounts({ 'NY-buf': 'buf', 'NY-nyj': 'buf', 'NY-nyg': 'nyg', 'MD-wsh': 'wsh', DC: 'wsh', 'MD-bal': 'bal', PA: 'buf' }, stateOf).buf, 2);
 });

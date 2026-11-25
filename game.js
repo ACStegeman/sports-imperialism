@@ -67,3 +67,15 @@ export function territories(owners, adjacency) {
   }
   return out;
 }
+
+// How many states each team holds any part of. A split state counts once; DC counts as Maryland.
+export function stateCounts(owners, stateOf) {
+  const seen = {};
+  for (const id in owners) {
+    const t = owners[id];
+    if (!t) continue;
+    const st = stateOf[id] === 'DC' ? 'MD' : stateOf[id];
+    (seen[t] ||= new Set()).add(st);
+  }
+  return Object.fromEntries(Object.entries(seen).map(([t, s]) => [t, s.size]));
+}
