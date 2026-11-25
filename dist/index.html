@@ -523,7 +523,7 @@ function drawStandings() {
   const top = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 6);
   $('standings').innerHTML = top.map(([a, n]) => `<li><img src="${logoUrl(a)}" alt=""><span>${TEAM_BY_ABBR[a].name}</span><span class="n">${n} ${n === 1 ? 'state' : 'states'}</span></li>`).join('');
 }
-function addLog(html) { state.log.unshift(`Turn ${state.turn + 1}: ${html}`); state.log = state.log.slice(0, 60); }
+function addLog(html, label = `Turn ${state.turn + 1}`) { state.log.unshift(`${label}: ${html}`); state.log = state.log.slice(0, 60); }
 function drawLog() { $('log').innerHTML = state.log.length ? state.log.map(l => `<li>${l}</li>`).join('') : '<li>No moves yet.</li>'; }
 
 function drawStrengths() {
@@ -544,7 +544,7 @@ function onRegionClick(id) {
   const team = v === '__blank' ? null : v, before = state.owners[id];
   if (before === team) return;
   state.owners = claim(state.owners, team, id);
-  addLog(`${regionName(BY_ID[id])} handed to <b>${team ? teamName(team) : 'nobody'}</b>`);
+  addLog(`${regionName(BY_ID[id])} handed to <b>${team ? teamName(team) : 'nobody'}</b>`, 'By hand');
   const alive = new Set(aliveTeams(state.owners));
   if ((turn.attacker && !alive.has(turn.attacker)) || (turn.defender && turn.step === 'battle' && !alive.has(turn.defender))) { turn = { step: 'wheel' }; clearAim(); }
   else if (turn.step === 'arrow') drawArrow(turn.attacker, arrowRot);
