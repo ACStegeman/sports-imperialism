@@ -2284,8 +2284,9 @@ async function loadMap(key) {
 }
 let mapArmed = null;
 async function switchMap(key) {
-  if (key === MAP || busy) return;
+  if (key === MAP) return;
   stopAuto(); exitReplay(false);
+  while (busy) await sleep(100); // let a battle that's already playing finish first
   $('loading').hidden = false; $('loading').textContent = 'Loading map…';
   await loadMap(key);
   state = fresh({ ...state, map: key }); CAPITALS = state.home;
@@ -2306,8 +2307,9 @@ function drawMapSwitch() {
 const preloadLogos = () => Promise.all(TEAMS.map(t => new Promise(res => { const im = new Image(); im.onload = im.onerror = res; im.src = logoUrl(t.abbr); })));
 // Pick a different league: new teams, new logos, the right map, and a new game.
 async function switchLeague(key) {
-  if (key === LEAGUE || busy) return;
+  if (key === LEAGUE) return;
   stopAuto(); exitReplay(false);
+  while (busy) await sleep(100); // let a battle that's already playing finish first
   $('loading').hidden = false; $('loading').textContent = 'Loading teams…';
   setLeague(key);
   await preloadLogos();
