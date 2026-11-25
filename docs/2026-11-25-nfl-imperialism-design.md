@@ -45,8 +45,9 @@ Arrow targeting rule, winner-takes-all + elimination, starting strength values, 
 - Capitals (option): each team's home region has a star. A battle wins only the land fought over (target if the attacker wins; the attacker's touching region if the defender wins). Taking a capital takes everything.
 - Rebellions (option): at each Next turn, 8% chance a knocked-out team retakes its home region and rejoins the wheel.
 - Replay: every move is saved as a snapshot; a slider and Play button replay the map; Back to game returns.
-- Record book: biggest upset, longest win streak, most states at once, fastest knockout. Shown in the sidebar and on the champion banner.
+- Record book: biggest upset, longest win streak, most states taken in one win (the champion's final map fill doesn't count), fastest knockout. Shown in the sidebar and on the champion banner.
 - Auto-play (50/50 and Weighted): plays turns by itself at 1x-8x; stops at a champion.
 - Real records (option in Team strength): type W-L; strength = 1 + 9 x win %.
 - Game sim scoring: each game gets a pace (defensive ~22%, normal ~53%, shootout ~25%); ties after Q4 go to overtime. Average about 52 combined points; combined score never over 100 (a game that would go over is replayed).
 - Game screen: TV-style field (yard numbers, hashes, goal posts, end-zone names), drives play by play with a blue line of scrimmage and yellow first-down line, possession marker, win-probability bar, TOUCHDOWN!/IT'S GOOD!/SAFETY! flashes with field goals arcing through the posts, non-scoring drives (punts, interceptions, fumbles, turnovers on downs), winner kneels out the clock, and a quarter-by-quarter box score at the final.
+- After two arrow misses in a row, the next spin is aimed only at directions that reach land. The champion screen hides the arrow and aim line.

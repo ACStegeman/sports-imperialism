@@ -243,10 +243,9 @@ export function recordBattle(records, { winner, loser, winnerOdds, turn }) {
   if (winnerOdds != null && winnerOdds < 0.5 && (!r.upset || winnerOdds * 100 < r.upset.pct)) r.upset = { team: winner, vs: loser, pct: Math.round(winnerOdds * 100), turn };
   return r;
 }
-export function recordPeak(records, counts, turn) {
-  let r = records;
-  for (const [team, n] of Object.entries(counts)) if (!r.peak || n > r.peak.n) r = { ...r, peak: { team, n, turn } };
-  return r;
+export function recordTake(records, { team, from, n, turn }) {
+  if (records.bigTake && records.bigTake.n >= n) return records;
+  return { ...records, bigTake: { team, from, n, turn } };
 }
 export function recordElimination(records, { team, by, turn }) {
   if (records.fastestOut && records.fastestOut.turn <= turn) return records;
@@ -262,3 +261,10 @@ export function strengthFromRecord(w, l) {
 // Compact map snapshots for the history replay: one character per region.
 export const encodeOwners = (owners, ids, teams) => ids.map(id => owners[id] ? String.fromCharCode(65 + teams.indexOf(owners[id])) : '.').join('');
 export const decodeOwners = (code, ids, teams) => Object.fromEntries(ids.map((id, i) => [id, code[i] === '.' ? null : teams[code.charCodeAt(i) - 65]]));
+
+// Arrow directions (degrees, every `step`) that land on something the team can take. Used after repeated misses.
+export function landAngles(team, origin, labelAt, owners, adjacency, { step = 3, ...opts } = {}) {
+  const out = [];
+  for (let a = 0; a < 360; a += step) if (rayTarget(team, origin, a, labelAt, owners, adjacency, opts)) out.push(a);
+  return out;
+}

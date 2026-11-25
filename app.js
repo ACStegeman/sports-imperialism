@@ -278,7 +278,12 @@ function drawArrow(team, rot) {
 }
 async function spinArrow() {
   busy = true; render();
-  const a = turn.attacker, final = Math.random() * 360;
+  const a = turn.attacker, misses = turn.misses || 0;
+  let final = Math.random() * 360;
+  if (misses >= 2) { // two misses in a row: this spin can only land on land
+    const ok = landAngles(a, teamSpot(a), labelAt, state.owners, ADJ, { step: 2 });
+    if (ok.length) final = ok[Math.floor(Math.random() * ok.length)] + Math.random() * 1.5;
+  }
   const target = arrowRot + 720 + mod(final - arrowRot, 360);
   await animate(arrowRot, target, 2600 / SPEED(), r => drawArrow(a, r));
   arrowRot = mod(target, 360);
@@ -287,7 +292,7 @@ async function spinArrow() {
     // pointed at water or nobody it borders: respin automatically
     const hasNeighbor = ADJ.some(([p, q]) => (state.owners[p] === a && state.owners[q] !== a) || (state.owners[q] === a && state.owners[p] !== a));
     if (!hasNeighbor) { turn = { step: 'done', attacker: a, msg: `The <b>${TEAM_BY_ABBR[a].name}</b> have no land to attack. Turn skipped.` }; busy = false; render(); return; }
-    turn = { step: 'arrow', attacker: a, missed: true };
+    turn = { step: 'arrow', attacker: a, missed: true, misses: misses + 1 };
     render();
     await sleep(800 / SPEED());
     return spinArrow();
@@ -508,9 +513,12 @@ function finishBattle(winner, upset = false, winnerOdds = null) {
   const { attacker: a, defender: b, region } = turn, loser = winner === a ? b : a;
   const up = upset ? '<b class="up">UPSET!</b> ' : '';
   let story;
+  const loserStates = stateCounts(state.owners, STATE_OF)[loser] || 0;
+  let takenStates = loserStates;
   if (opt('capitals')) {
     const r = capitalsBattle(state.owners, winner, loser, a, region, CAPITALS, ADJ, CENT);
     const place = regionName(BY_ID[r.taken]);
+    if (!r.capitalFell) takenStates = 1;
     state.owners = r.owners;
     if (r.capitalFell) story = `The <b>${TEAM_BY_ABBR[winner].name}</b> capture the ${teamName(loser)}' capital in ${place} and take all their land. The ${teamName(loser)} are out.`;
     else if (winner === a) story = `The <b>${TEAM_BY_ABBR[winner].name}</b> win and take ${place} from the ${teamName(loser)}.`;
@@ -526,6 +534,7 @@ function finishBattle(winner, upset = false, winnerOdds = null) {
   state.strengths = boostWinner(state.strengths, winner, loser);
   const grew = state.strengths[winner] > before ? ` Strength ${before} → ${state.strengths[winner]} (beat ${String(state.strengths[loser]).startsWith('8') ? 'an' : 'a'} ${state.strengths[loser]}).` : '';
   state.records = recordBattle(state.records, { winner, loser, winnerOdds, turn: state.turn + 1 });
+  state.records = recordTake(state.records, { team: winner, from: loser, n: takenStates, turn: state.turn + 1 });
   if (!aliveTeams(state.owners).includes(loser)) state.records = recordElimination(state.records, { team: loser, by: winner, turn: state.turn + 1 });
   addLog(`${up}${story.replace(/<b>|<\/b>/g, '')}${grew}`);
   turn = { step: 'done', attacker: a, defender: b, winner, msg: `${upset ? '<b>UPSET!</b> ' : ''}${story}${grew}` + afterMove() };
@@ -537,7 +546,6 @@ function finishBattle(winner, upset = false, winnerOdds = null) {
 
 // Save the move: record-book peak, a history snapshot for the replay, then store.
 function commit() {
-  state.records = recordPeak(state.records, stateCounts(state.owners, STATE_OF), state.turn);
   state.history.push({ t: state.turn, c: encodeOwners(state.owners, REGIONS.map(r => r.id), TEAMS.map(t => t.abbr)) });
   if (state.history.length > 500) state.history.splice(1, state.history.length - 500);
   save(); drawReplay(); drawRecords();
@@ -624,6 +632,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function celebrate() {
   const champ = pendingChamp; pendingChamp = null;
   if (!champ) return;
+  clearAim();
   busy = true; render();
   if (!reduced) {
     // one state at a time: nearest ring first, and within a ring, closest to the champion's logo first
@@ -938,7 +947,7 @@ function recordLines() {
   return [
     `<li><span>Biggest upset</span><b>${r.upset ? `${nm(r.upset.team)} over the ${teamName(r.upset.vs)} (${r.upset.pct}%)` : '—'}</b></li>`,
     `<li><span>Longest win streak</span><b>${r.streak ? `${nm(r.streak.team)}, ${r.streak.n} ${r.streak.n === 1 ? 'win' : 'wins'}` : '—'}</b></li>`,
-    `<li><span>Most states at once</span><b>${r.peak && r.peak.n > 1 ? `${nm(r.peak.team)}, ${r.peak.n} states` : '—'}</b></li>`,
+    `<li><span>Most states taken in one win</span><b>${r.bigTake ? `${nm(r.bigTake.team)}, ${r.bigTake.n} ${r.bigTake.n === 1 ? 'state' : 'states'} from the ${teamName(r.bigTake.from)}` : '—'}</b></li>`,
     `<li><span>Fastest knockout</span><b>${r.fastestOut ? `${nm(r.fastestOut.team)} on turn ${r.fastestOut.turn} (by the ${teamName(r.fastestOut.by)})` : '—'}</b></li>`,
   ];
 }

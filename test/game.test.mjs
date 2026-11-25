@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { battleOdds, capitalsBattle, pickRebellion, recordBattle, recordPeak, recordElimination, strengthFromRecord, encodeOwners, decodeOwners, isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { battleOdds, capitalsBattle, pickRebellion, recordBattle, recordTake, recordElimination, landAngles, strengthFromRecord, encodeOwners, decodeOwners, isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
 import { TEAMS } from '../teams.js';
 
 const regions = [
@@ -194,7 +194,7 @@ test('pickRebellion: an eliminated team rises up in its home region, only when t
   assert.equal(pickRebellion(o, ['kc', 'den'], caps, () => 0.5, 0.08), null);
   assert.equal(pickRebellion({ MO: 'kc', CO: 'den' }, ['kc', 'den'], caps, () => 0.01, 0.08), null); // nobody eliminated
 });
-test('record book: biggest upset, longest streak, most states, fastest elimination', () => {
+test('record book: biggest upset, longest streak, biggest single conquest, fastest elimination', () => {
   let r = {};
   r = recordBattle(r, { winner: 'ten', loser: 'kc', winnerOdds: 0.15, turn: 3 });
   r = recordBattle(r, { winner: 'ten', loser: 'den', winnerOdds: 0.4, turn: 4 });
@@ -202,8 +202,9 @@ test('record book: biggest upset, longest streak, most states, fastest eliminati
   assert.equal(r.upset.team, 'ten'); assert.equal(r.upset.pct, 15);
   assert.deepEqual(r.streak, { team: 'ten', n: 2 });
   assert.equal(r.current.ten, 0); assert.equal(r.current.buf, 1);
-  r = recordPeak(r, { buf: 4, ten: 2 }, 5);
-  assert.deepEqual(r.peak, { team: 'buf', n: 4, turn: 5 });
+  r = recordTake(r, { team: 'buf', from: 'ten', n: 4, turn: 5 });
+  r = recordTake(r, { team: 'kc', from: 'den', n: 2, turn: 6 });
+  assert.deepEqual(r.bigTake, { team: 'buf', from: 'ten', n: 4, turn: 5 });
   r = recordElimination(r, { team: 'kc', by: 'ten', turn: 3 });
   r = recordElimination(r, { team: 'den', by: 'ten', turn: 4 });
   assert.deepEqual(r.fastestOut, { team: 'kc', by: 'ten', turn: 3 });
@@ -246,4 +247,13 @@ test('simulateGame: combined score never goes over 100', () => {
     assert.ok(g.score.dal + g.score.hou <= 100, `game ${i}: ${g.score.dal}-${g.score.hou}`);
     assert.ok(g.score.dal > g.score.hou);
   }
+});
+
+test('landAngles: only directions where the arrow reaches land it can take', () => {
+  // S = 49ers on the coast, water to the west, Nevada to the east
+  const map = gridMap(['.....SSNNN', '.....SSNNN', '.....SSNNN'], { S: 'CA', N: 'NV' });
+  const angles = landAngles('sf', [5.5, 1.5], map, { CA: 'sf', NV: null }, [['CA', 'NV']], { step: 15, minGap: 2, maxDist: 20 });
+  assert.ok(angles.length > 0);
+  assert.ok(angles.every(a => a < 90 || a > 270), `angles: ${angles}`); // all point east-ish, none west into the water
+  assert.ok(angles.includes(0));
 });
