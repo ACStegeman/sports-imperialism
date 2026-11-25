@@ -251,10 +251,6 @@ export function recordTake(records, { team, from, n, turn }) {
   if (records.bigTake && records.bigTake.n >= n) return records;
   return { ...records, bigTake: { team, from, n, turn } };
 }
-export function recordElimination(records, { team, by, turn }) {
-  if (records.fastestOut && records.fastestOut.turn <= turn) return records;
-  return { ...records, fastestOut: { team, by, turn } };
-}
 
 // Strength from a real win-loss record: 1 + 9 x win percentage.
 export function strengthFromRecord(w, l) {

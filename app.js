@@ -625,7 +625,6 @@ function finishBattle(winner, upset = false, winnerOdds = null, extra = '') {
   const grew = state.strengths[winner] > before ? ` Strength ${before} → ${state.strengths[winner]} (beat ${String(state.strengths[loser]).startsWith('8') ? 'an' : 'a'} ${state.strengths[loser]}).` : '';
   state.records = recordBattle(state.records, { winner, loser, winnerOdds, turn: state.turn + 1 });
   state.records = recordTake(state.records, { team: winner, from: loser, n: takenStates, turn: state.turn + 1 });
-  if (!aliveTeams(state.owners).includes(loser)) state.records = recordElimination(state.records, { team: loser, by: winner, turn: state.turn + 1 });
   addLog(`${up}${story.replace(/<b>|<\/b>/g, '')}${grew}`);
   turn = { step: 'done', attacker: a, defender: b, winner, msg: `${upset ? '<b>UPSET!</b> ' : ''}${story}${grew}` + afterMove() };
   syncStrengthInputs();
@@ -656,7 +655,6 @@ function nextTurn() {
       addLog(`<b class="up">REBELLION!</b> The ${teamName(r.team)} rise up and retake ${regionName(BY_ID[r.region])}${from ? ` from the ${teamName(from)}` : ''}`, `Turn ${state.turn}`);
       showBanner(r.team, 'REBELLION!');
       sfx.rebellion();
-      if (from && !aliveTeams(state.owners).includes(from)) state.records = recordElimination(state.records, { team: from, by: r.team, turn: state.turn });
       commit(); paint();
     }
   }
@@ -1192,7 +1190,6 @@ function recordLines() {
     `<li><span>Most wins</span><b>${r.mostWins ? `${nm(r.mostWins.team)}, ${r.mostWins.n} ${r.mostWins.n === 1 ? 'win' : 'wins'}` : '—'}</b></li>`,
     `<li><span>Longest win streak</span><b>${r.streak ? `${nm(r.streak.team)}, ${r.streak.n} ${r.streak.n === 1 ? 'win' : 'wins'}` : '—'}</b></li>`,
     `<li><span>Most ${UNIT(2)} taken in one win</span><b>${r.bigTake ? `${nm(r.bigTake.team)}, ${r.bigTake.n} ${UNIT(r.bigTake.n)} from the ${teamName(r.bigTake.from)}` : '—'}</b></li>`,
-    `<li><span>Fastest knockout</span><b>${r.fastestOut ? `${nm(r.fastestOut.team)} on turn ${r.fastestOut.turn} (by the ${teamName(r.fastestOut.by)})` : '—'}</b></li>`,
   ];
 }
 function drawRecords() { const e = $('records'); if (e && state) e.innerHTML = recordLines().join(''); }

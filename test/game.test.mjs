@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assignHomes, placeTokens, applyBonuses, POWERS, battleOdds, capitalsBattle, pickRebellion, recordBattle, recordTake, recordElimination, landAngles, strengthFromRecord, encodeOwners, decodeOwners, isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { assignHomes, placeTokens, applyBonuses, POWERS, battleOdds, capitalsBattle, pickRebellion, recordBattle, recordTake, landAngles, strengthFromRecord, encodeOwners, decodeOwners, isUpset, spreadOrder, simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
 import { TEAMS } from '../teams.js';
 
 const regions = [
@@ -194,7 +194,7 @@ test('pickRebellion: an eliminated team rises up in its home region, only when t
   assert.equal(pickRebellion(o, ['kc', 'den'], caps, () => 0.5, 0.08), null);
   assert.equal(pickRebellion({ MO: 'kc', CO: 'den' }, ['kc', 'den'], caps, () => 0.01, 0.08), null); // nobody eliminated
 });
-test('record book: biggest upset, longest streak, biggest single conquest, fastest elimination', () => {
+test('record book: biggest upset, longest streak, biggest single conquest', () => {
   let r = {};
   r = recordBattle(r, { winner: 'ten', loser: 'kc', winnerOdds: 0.15, turn: 3 });
   r = recordBattle(r, { winner: 'ten', loser: 'den', winnerOdds: 0.4, turn: 4 });
@@ -205,9 +205,6 @@ test('record book: biggest upset, longest streak, biggest single conquest, faste
   r = recordTake(r, { team: 'buf', from: 'ten', n: 4, turn: 5 });
   r = recordTake(r, { team: 'kc', from: 'den', n: 2, turn: 6 });
   assert.deepEqual(r.bigTake, { team: 'buf', from: 'ten', n: 4, turn: 5 });
-  r = recordElimination(r, { team: 'kc', by: 'ten', turn: 3 });
-  r = recordElimination(r, { team: 'den', by: 'ten', turn: 4 });
-  assert.deepEqual(r.fastestOut, { team: 'kc', by: 'ten', turn: 3 });
 });
 test('strengthFromRecord: 1 + 9 x win percentage', () => {
   assert.equal(strengthFromRecord(10, 2), 8.5);
