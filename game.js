@@ -52,3 +52,18 @@ export function champion(owners) {
 export function showBorder(owners, a, b) {
   return owners[a] !== owners[b] || !owners[a];
 }
+
+// Connected pieces of land per team. adjacency = [[regionA, regionB], ...] for regions that share a border.
+export function territories(owners, adjacency) {
+  const nb = {};
+  for (const [a, b] of adjacency) if (owners[a] && owners[a] === owners[b]) { (nb[a] ||= []).push(b); (nb[b] ||= []).push(a); }
+  const seen = new Set(), out = [];
+  for (const id in owners) {
+    if (!owners[id] || seen.has(id)) continue;
+    const ids = [], stack = [id];
+    seen.add(id);
+    while (stack.length) { const x = stack.pop(); ids.push(x); for (const y of nb[x] || []) if (!seen.has(y)) { seen.add(y); stack.push(y); } }
+    out.push({ team: owners[id], ids });
+  }
+  return out;
+}

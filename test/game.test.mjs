@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
 import { TEAMS } from '../teams.js';
 
 const regions = [
@@ -72,4 +72,14 @@ test('border hides between two regions of the same team, shows otherwise', () =>
   assert.equal(showBorder(o, 'NV', 'OR'), true);
   assert.equal(showBorder(o, 'ID', 'UT'), true);
   assert.equal(showBorder(o, 'UT', 'WY'), true); // two open states keep their line
+});
+test('territories groups touching land of one team; separate pieces stay separate', () => {
+  const o = { NV: 'lv', ID: 'lv', UT: 'lv', FL: 'lv', OR: 'sea', WY: null };
+  const adj = [['NV', 'ID'], ['ID', 'UT'], ['NV', 'OR'], ['UT', 'WY']];
+  const t = territories(o, adj).map(x => ({ team: x.team, ids: [...x.ids].sort() }));
+  assert.deepEqual(t.sort((a, b) => a.ids[0].localeCompare(b.ids[0])), [
+    { team: 'lv', ids: ['FL'] },
+    { team: 'lv', ids: ['ID', 'NV', 'UT'] },
+    { team: 'sea', ids: ['OR'] },
+  ]);
 });

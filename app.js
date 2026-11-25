@@ -57,10 +57,10 @@ function buildRegions(topo) {
       buckets[k].push([x, y]);
     }
     if (teams.length <= 1) {
-      out.push({ id: code, state: code, team: teams[0]?.abbr ?? null, d, clip: null, at: anchor(buckets[0], path.centroid(f)), area: path.area(f) });
+      out.push({ id: code, state: code, team: teams[0]?.abbr ?? null, d, clip: null, at: anchor(buckets[0], path.centroid(f)), area: path.area(f), pts: buckets[0] });
     } else {
       const vor = d3.Delaunay.from(seeds).voronoi([x0 - 10, y0 - 10, x1 + 10, y1 + 10]);
-      teams.forEach((t, i) => out.push({ id: `${code}-${t.abbr}`, state: code, team: t.abbr, d: vor.renderCell(i), clip: code, stateD: d, at: anchor(buckets[i], seeds[i]), area: buckets[i].length * step * step }));
+      teams.forEach((t, i) => out.push({ id: `${code}-${t.abbr}`, state: code, team: t.abbr, d: vor.renderCell(i), clip: code, stateD: d, at: anchor(buckets[i], seeds[i]), area: buckets[i].length * step * step, pts: buckets[i] }));
     }
   }
   return { regions: out, path, fc, topo, segments: buildSegments(topo, proj, out, ctx) };
@@ -121,9 +121,13 @@ function buildSegments(topo, proj, regions, ctx) {
 }
 
 // ---------- map render ----------
-let gRegions, gLogos, gArrow, gAim, gBorders, SEGS = [];
+let gRegions, gLogos, gArrow, gAim, gBorders, SEGS = [], ADJ = [];
+const ANCHOR_CACHE = new Map();
 function drawMap({ regions, path, topo, segments }) {
   SEGS = segments;
+  const pairs = new Set();
+  for (const g of segments) pairs.add([g.a, g.b].sort().join('|'));
+  ADJ = [...pairs].map(k => k.split('|'));
   const svg = $('map');
   svg.innerHTML = '';
   const defs = el('defs', {}, svg);
@@ -147,7 +151,6 @@ function drawMap({ regions, path, topo, segments }) {
   gArrow = el('g', {}, svg);
 }
 
-function logoSize(r) { return Math.max(14, Math.min(46, Math.sqrt(r.area) * 0.42)); }
 
 function paint() {
   const { owners } = state;
@@ -161,13 +164,21 @@ function paint() {
   for (const g of SEGS) if (showBorder(owners, g.a, g.b)) bd += `M${g.p[0].toFixed(1)},${g.p[1].toFixed(1)}L${g.q[0].toFixed(1)},${g.q[1].toFixed(1)}`;
   gBorders.setAttribute('d', bd);
   gLogos.innerHTML = '';
-  for (const r of REGIONS) {
-    const o = owners[r.id];
-    if (!o || r.area < 120) continue;
-    const s = logoSize(r);
-    el('circle', { cx: r.at[0], cy: r.at[1], r: s * 0.5, fill: '#eef2ea', 'fill-opacity': 0.92, stroke: TEAM_BY_ABBR[o].color, 'stroke-width': 1.5, class: 'logo' }, gLogos);
+  for (const t of territories(owners, ADJ)) {
+    const key = [...t.ids].sort().join(',');
+    let spot = ANCHOR_CACHE.get(key);
+    if (!spot) {
+      const rs = t.ids.map(id => BY_ID[id]);
+      const area = rs.reduce((n, r) => n + r.area, 0);
+      const at = rs.length === 1 ? rs[0].at : anchor(rs.flatMap(r => r.pts), rs[0].at);
+      spot = { at, area };
+      ANCHOR_CACHE.set(key, spot);
+    }
+    if (spot.area < 120) continue;
+    const s = Math.max(14, Math.min(64, Math.sqrt(spot.area) * 0.42)), color = TEAM_BY_ABBR[t.team].color;
+    el('circle', { cx: spot.at[0], cy: spot.at[1], r: s * 0.5, fill: '#eef2ea', 'fill-opacity': 0.92, stroke: color, 'stroke-width': 1.5, class: 'logo' }, gLogos);
     const li = s * 0.78;
-    el('image', { href: logoUrl(o), x: r.at[0] - li / 2, y: r.at[1] - li / 2, width: li, height: li, class: 'logo' }, gLogos);
+    el('image', { href: logoUrl(t.team), x: spot.at[0] - li / 2, y: spot.at[1] - li / 2, width: li, height: li, class: 'logo' }, gLogos);
   }
   drawWheel();
   drawStandings();
