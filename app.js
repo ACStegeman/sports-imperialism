@@ -331,6 +331,7 @@ async function fight() {
 
 // ---------- simulated game popup ----------
 const fmtClock = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+const qName = q => q === 5 ? 'OT' : `Q${q}`;
 function playText(e) {
   const n = teamName(e.team);
   if (e.kind === 'pass') return `${n} ${e.yards}-yard touchdown pass`;
@@ -340,72 +341,164 @@ function playText(e) {
   if (e.kind === 'two-point') return `${n} touchdown and the two-point try is good`;
   return `Safety! ${n} get 2`;
 }
+const STOP_TEXT = { punt: 'punt it away', int: 'throw an interception', downs: 'turn it over on downs', fumble: 'fumble, and it\'s recovered by the defense', kneel: 'take a knee to run out the clock' };
+
+// Turn the scoring list into drives the field can show: each score gets a drive that ends in it,
+// long gaps get a stalled drive by the other team, and the winner kneels out the clock at the end.
+function planDrives(a, b, game, QMS) {
+  const other = t => t === a ? b : a;
+  const at = e => e.q === 5 ? 4 * QMS + (1 - e.clock / 600) * QMS * 0.8 : (e.q - 1) * QMS + (1 - e.clock / 900) * QMS;
+  const total = 4 * QMS + (game.events.some(e => e.q === 5) ? QMS * 0.8 : 0);
+  const gap = QMS * 0.16, drives = [];
+  const make = (team, t0, t1, result, event) => {
+    const start = result === 'safety-against' ? 2 + Math.random() * 6 : 15 + Math.random() * 20;
+    const target = result === 'td' ? 100 : result === 'fg' ? 62 + Math.random() * 18 : result === 'safety-against' ? -2
+      : result === 'kneel' ? start + 1 : Math.min(92, start + 12 + Math.random() * 35);
+    const k = result === 'kneel' ? 3 : 3 + Math.floor(Math.random() * 6);
+    const w = Array.from({ length: k }, () => 0.4 + Math.random());
+    const sum = w.reduce((x, y) => x + y, 0);
+    let y = start; const plays = [];
+    w.forEach((wi, idx) => { y += (target - start) * wi / sum; if (idx === k - 1) y = target; plays.push({ t: t0 + (t1 - t0) * (idx + 1) / (k + 0.4), y }); });
+    drives.push({ team, t0, t1, start, plays, result, event });
+  };
+  let prev = 0;
+  for (const e of game.events) {
+    const t = at(e), team = e.kind === 'safety' ? other(e.team) : e.team;
+    const ws = prev + gap;
+    if (t - ws > QMS * 1.25) {
+      const mid = ws + (t - ws) * 0.42;
+      make(other(team), ws, mid, ['punt', 'punt', 'int', 'downs', 'fumble'][Math.floor(Math.random() * 5)]);
+      make(team, mid + gap, t, e.kind === 'safety' ? 'safety-against' : e.kind === 'fg' ? 'fg' : 'td', e);
+    } else make(team, ws, Math.max(ws + gap, t), e.kind === 'safety' ? 'safety-against' : e.kind === 'fg' ? 'fg' : 'td', e);
+    e.at = t; prev = t;
+  }
+  if (total - prev > QMS * 0.7) {
+    const w = game.score[a] > game.score[b] ? a : b;
+    if (total - prev > QMS * 1.6) make(other(w), prev + gap, prev + (total - prev) * 0.5, 'punt');
+    make(w, Math.max(prev + gap, total - QMS * 0.55), total - QMS * 0.05, 'kneel');
+  }
+  return { drives, total };
+}
+
 function playGame(a, b, game, upset = false) {
   return new Promise(resolve => {
     const ov = $('overlay'), A = TEAM_BY_ABBR[a], B = TEAM_BY_ABBR[b];
-    ov.innerHTML = `<div class="game" id="game-open" role="dialog" aria-label="${A.name} vs ${B.name}">
+    // field geometry: 260 x 110, end zones 0-20 and 240-260, a yard = 2.2 units. Away attacks right.
+    const X = (team, y) => team === a ? 20 + y * 2.2 : 240 - y * 2.2;
+    const yardLines = Array.from({ length: 19 }, (_, k) => { const x = 20 + (k + 1) * 11; return `<line x1="${x}" y1="6" x2="${x}" y2="104" stroke="rgba(255,255,255,${k % 2 ? .28 : .5})" stroke-width="${k === 9 ? 1.3 : .7}"/>`; }).join('');
+    const nums = [10, 20, 30, 40, 50, 40, 30, 20, 10].map((n, k) => `<text x="${20 + (k + 1) * 22}" y="98" class="ynum">${n}</text><text x="${20 + (k + 1) * 22}" y="20" class="ynum flip">${n}</text>`).join('');
+    const hashes = Array.from({ length: 99 }, (_, k) => { const x = 20 + (k + 1) * 2.2; return `<line x1="${x}" y1="40" x2="${x}" y2="43" stroke="rgba(255,255,255,.35)" stroke-width=".5"/><line x1="${x}" y1="67" x2="${x}" y2="70" stroke="rgba(255,255,255,.35)" stroke-width=".5"/>`; }).join('');
+    const post = x => `<g stroke="#f0d34a" stroke-width="1.6" fill="none"><line x1="${x}" y1="55" x2="${x + (x < 130 ? -6 : 6)}" y2="55"/><line x1="${x + (x < 130 ? -6 : 6)}" y1="44" x2="${x + (x < 130 ? -6 : 6)}" y2="66"/></g>`;
+    ov.innerHTML = `<div class="game" id="game-open" role="dialog" aria-label="${A.name} at ${B.name}">
       <div class="board">
-        <div class="bt"><img src="${logoUrl(a)}" alt=""><span>${teamName(a)}<small>AWAY</small></span><b id="sc-a">0</b></div>
+        <div class="bt" id="bt-a"><img src="${logoUrl(a)}" alt=""><span>${teamName(a)}<small>AWAY</small></span><i class="poss" aria-hidden="true"></i><b id="sc-a">0</b></div>
         <div class="clock"><span id="g-q">1st</span><span id="g-clock">15:00</span></div>
-        <div class="bt"><img src="${logoUrl(b)}" alt=""><span>${teamName(b)}<small>HOME</small></span><b id="sc-b">0</b></div>
+        <div class="bt" id="bt-b"><img src="${logoUrl(b)}" alt=""><span>${teamName(b)}<small>HOME</small></span><i class="poss" aria-hidden="true"></i><b id="sc-b">0</b></div>
       </div>
-      <svg class="gfield" viewBox="0 0 240 70" aria-hidden="true">
-        <rect x="0" y="0" width="240" height="70" fill="#2f6b3a"/>
-        <rect x="0" y="0" width="20" height="70" fill="${A.color}"/><rect x="220" y="0" width="20" height="70" fill="${B.color}"/>
-        ${Array.from({ length: 9 }, (_, k) => `<line x1="${40 + k * 20}" y1="0" x2="${40 + k * 20}" y2="70" stroke="rgba(255,255,255,.45)" stroke-width="${k === 4 ? 1.4 : .7}"/>`).join('')}
-        <line x1="20" y1="0" x2="20" y2="70" stroke="#fff" stroke-width="1.2"/><line x1="220" y1="0" x2="220" y2="70" stroke="#fff" stroke-width="1.2"/>
-        <image href="${logoUrl(b)}" x="108" y="23" width="24" height="24" opacity=".35"/>
-        <ellipse id="g-ball" cx="120" cy="35" rx="5" ry="3.2" fill="#8a4b20" stroke="#fff" stroke-width=".8"/>
+      <div class="wp" aria-hidden="true"><div class="wp-a" id="wp-a" style="background:${A.color}"></div><div class="wp-b" style="background:${B.color}"></div><span class="wp-l" id="wp-l"></span></div>
+      <svg class="gfield" viewBox="0 0 260 110" aria-hidden="true">
+        <rect x="0" y="0" width="260" height="110" fill="#2c6a37"/>
+        ${Array.from({ length: 10 }, (_, k) => `<rect x="${20 + k * 22}" y="0" width="11" height="110" fill="rgba(255,255,255,.035)"/>`).join('')}
+        <rect x="0" y="0" width="20" height="110" fill="${A.color}"/><rect x="240" y="0" width="20" height="110" fill="${B.color}"/>
+        <text x="10" y="55" class="ez" transform="rotate(-90 10 55)">${teamName(a).toUpperCase()}</text>
+        <text x="250" y="55" class="ez" transform="rotate(90 250 55)">${teamName(b).toUpperCase()}</text>
+        ${yardLines}${hashes}${nums}
+        <rect x="0.5" y="0.5" width="259" height="109" fill="none" stroke="#fff" stroke-width="1"/>
+        <line x1="20" y1="0" x2="20" y2="110" stroke="#fff" stroke-width="1.4"/><line x1="240" y1="0" x2="240" y2="110" stroke="#fff" stroke-width="1.4"/>
+        ${post(20)}${post(240)}
+        <image href="${logoUrl(b)}" x="116" y="41" width="28" height="28" opacity=".32"/>
+        <line id="g-los" x1="130" y1="4" x2="130" y2="106" stroke="#3b82f6" stroke-width="1.4" opacity="0"/>
+        <line id="g-fd" x1="152" y1="4" x2="152" y2="106" stroke="#facc15" stroke-width="1.4" opacity="0"/>
+        <g id="g-ballg" transform="translate(130 55)"><ellipse rx="4.2" ry="2.6" fill="#8a4b20" stroke="#fff" stroke-width=".7"/><line x1="-1.6" y1="0" x2="1.6" y2="0" stroke="#fff" stroke-width=".6"/></g>
+        <text id="g-flash" x="130" y="62" class="flash" opacity="0"></text>
       </svg>
+      <div class="linescore" id="g-line" hidden></div>
       <ul class="plays" id="g-plays"><li>Kickoff!</li></ul>
       <div class="row"><button class="btn ghost" id="g-skip">Skip to final</button></div>
     </div>`;
     ov.hidden = false;
-    const scA = $('sc-a'), scB = $('sc-b'), qEl = $('g-q'), clockEl = $('g-clock'), plays = $('g-plays'), ball = $('g-ball');
-    const QMS = reduced ? 0 : 1900 / SPEED(); // real milliseconds per quarter
+    const scA = $('sc-a'), scB = $('sc-b'), qEl = $('g-q'), clockEl = $('g-clock'), plays = $('g-plays');
+    const ballG = $('g-ballg'), los = $('g-los'), fd = $('g-fd'), flash = $('g-flash'), wpA = $('wp-a'), wpL = $('wp-l');
+    const QMS = reduced ? 0 : 2300 / SPEED();
     sfx.kickoff(); sfx.crowdStart();
-    const names = ['1st', '2nd', '3rd', '4th'];
     const score = { [a]: 0, [b]: 0 };
-    let idx = 0, done = false, raf = 0, t0 = performance.now(), ballX = 120, holdUntil = 0, held = false;
-    const addPlay = html => { const li = document.createElement('li'); li.innerHTML = html; plays.prepend(li); while (plays.children.length > 4) plays.lastChild.remove(); };
+    const { drives, total } = QMS ? planDrives(a, b, game, QMS) : { drives: [], total: 0 };
+    let idx = 0, done = false, raf = 0, t0 = performance.now(), di = 0, flashUntil = 0, kick = null;
+    const addPlay = (html, cls = '') => { const li = document.createElement('li'); li.innerHTML = html; if (cls) li.className = cls; plays.prepend(li); while (plays.children.length > 4) plays.lastChild.remove(); };
+    const setScore = () => { scA.textContent = score[a]; scB.textContent = score[b]; };
+    const showFlash = (text, color, ms) => { flash.textContent = text; flash.setAttribute('fill', color); flash.setAttribute('opacity', 1); flash.classList.remove('pop'); void flash.getBoundingClientRect(); flash.classList.add('pop'); flashUntil = performance.now() + ms; };
+    const setPoss = team => { $('bt-a').classList.toggle('has', team === a); $('bt-b').classList.toggle('has', team === b); };
+    const winProb = (el) => {
+      const diff = score[a] - score[b], rem = Math.max(0, 1 - el / Math.max(1, total));
+      const p = 1 / (1 + Math.exp(-diff / (4 + 10 * rem)));
+      wpA.style.width = `${(p * 100).toFixed(1)}%`;
+      wpL.textContent = p >= 0.5 ? `${teamName(a)} ${Math.round(p * 100)}%` : `${teamName(b)} ${Math.round((1 - p) * 100)}%`;
+    };
+    const lineScore = () => {
+      const hasOT = game.events.some(e => e.q === 5), qs = hasOT ? [1, 2, 3, 4, 5] : [1, 2, 3, 4];
+      const by = (t, q) => game.events.filter(e => e.team === t && e.q === q).reduce((n, e) => n + e.pts, 0);
+      const row = t => `<tr><th><img src="${logoUrl(t)}" alt="">${teamName(t)}</th>${qs.map(q => `<td>${by(t, q)}</td>`).join('')}<td class="tot">${game.score[t]}</td></tr>`;
+      $('g-line').innerHTML = `<table><thead><tr><th></th>${qs.map(q => `<th>${q === 5 ? 'OT' : q}</th>`).join('')}<th>T</th></tr></thead><tbody>${row(a)}${row(b)}</tbody></table>`;
+      $('g-line').hidden = false;
+    };
     const finish = () => {
       if (done) return; done = true; cancelAnimationFrame(raf);
-      for (; idx < game.events.length; idx++) { const e = game.events[idx]; score[e.team] += e.pts; }
-      scA.textContent = score[a]; scB.textContent = score[b];
-      qEl.textContent = 'FINAL'; clockEl.textContent = '0:00';
+      for (; idx < game.events.length; idx++) score[game.events[idx].team] += game.events[idx].pts;
+      setScore(); setPoss(null); flash.setAttribute('opacity', 0);
+      const wA = score[a] > score[b]; wpA.style.width = wA ? '100%' : '0%'; wpL.textContent = `${teamName(wA ? a : b)} win`;
+      qEl.textContent = game.events.some(e => e.q === 5) ? 'FINAL/OT' : 'FINAL'; clockEl.textContent = '0:00';
+      los.setAttribute('opacity', 0); fd.setAttribute('opacity', 0);
       const w = score[a] > score[b] ? a : b;
       addPlay(`<b>${upset ? 'UPSET! ' : ''}Final: ${TEAM_BY_ABBR[w].name} win ${Math.max(score[a], score[b])}–${Math.min(score[a], score[b])}</b>`);
-      ov.querySelectorAll('.bt')[w === a ? 0 : 1].classList.add('won');
+      $(w === a ? 'bt-a' : 'bt-b').classList.add('won');
+      lineScore();
       sfx.final();
       const btn = $('g-skip'); btn.textContent = 'Continue'; btn.className = 'btn';
       let closed = false;
       const close = () => { if (closed) return; closed = true; sfx.crowdStop(); ov.hidden = true; ov.innerHTML = ''; resolve(); };
       btn.onclick = close;
-      if (autoplay) setTimeout(close, 1100 / SPEED()); else btn.focus();
+      if (autoplay) setTimeout(close, 1400 / SPEED()); else btn.focus();
     };
     $('g-skip').onclick = finish;
     if (!QMS) return finish();
+    let lastDrive = -1;
     const tick = now => {
-      const el = now - t0, q = Math.min(4, Math.floor(el / QMS) + 1), gameClock = Math.max(0, Math.round(900 - ((el % QMS) / QMS) * 900));
-      qEl.textContent = names[q - 1]; clockEl.textContent = fmtClock(el >= QMS * 4 ? 0 : gameClock);
-      while (idx < game.events.length) {
-        const e = game.events[idx], at = (e.q - 1) * QMS + (1 - e.clock / 900) * QMS;
-        if (el < at) break;
-        score[e.team] += e.pts; scA.textContent = score[a]; scB.textContent = score[b];
-        addPlay(`<span class="q">Q${e.q} ${fmtClock(e.clock)}</span> ${playText(e)}`);
-        if (e.pts >= 6) sfx.touchdown(); else sfx.fieldGoal();
-        ballX = e.team === a ? 230 : 10; holdUntil = el + 450; held = true; idx++;
+      const el = now - t0;
+      const q = el >= 4 * QMS ? 5 : Math.floor(el / QMS) + 1;
+      if (q === 5) { qEl.textContent = 'OT'; clockEl.textContent = fmtClock(Math.max(0, Math.round(600 - ((el - 4 * QMS) / (QMS * 0.8)) * 600))); }
+      else { qEl.textContent = ['1st', '2nd', '3rd', '4th'][q - 1]; clockEl.textContent = fmtClock(Math.max(0, Math.round(900 - ((el % QMS) / QMS) * 900))); }
+      // scores
+      while (idx < game.events.length && el >= game.events[idx].at) {
+        const e = game.events[idx]; idx++;
+        score[e.team] += e.pts; setScore();
+        addPlay(`<span class="q">${qName(e.q)} ${fmtClock(e.clock)}</span> ${playText(e)}`);
+        const col = TEAM_BY_ABBR[e.team].color;
+        if (e.kind === 'fg') { showFlash("IT'S GOOD!", col, 900); sfx.fieldGoal(); kick = { team: e.team, from: X(e.team, drives.find(d => d.event === e)?.plays.at(-1).y ?? 70), t: now }; }
+        else if (e.kind === 'safety') { showFlash('SAFETY!', col, 900); sfx.fieldGoal(); }
+        else { showFlash('TOUCHDOWN!', col, 1100); sfx.touchdown(); }
       }
-      // ball drifts toward the end zone of whoever scores next; after a score it sits in the end zone briefly, then resets
-      if (el < holdUntil) { /* hold */ }
-      else if (held) { held = false; ballX = 120; }
-      else {
-        const next = game.events[idx];
-        const goal = next ? (next.team === a ? 210 : 30) : 120;
-        ballX = Math.max(25, Math.min(215, ballX + (goal - ballX) * 0.02 + (Math.random() - 0.5) * 1.5));
+      // current drive: ball, line of scrimmage, first-down line
+      while (di < drives.length - 1 && el > drives[di].t1 + QMS * 0.1) di++;
+      const d = drives[di];
+      if (d && el >= d.t0) {
+        if (lastDrive !== di) { lastDrive = di; setPoss(d.team); }
+        let last = d.start, nextY = d.start, nextT = d.t0, lastT = d.t0;
+        for (const p of d.plays) { if (p.t <= el) { last = p.y; lastT = p.t; } else { nextY = p.y; nextT = p.t; break; } }
+        const moving = Math.min(1, Math.max(0, (el - lastT) / (Math.max(1, nextT - lastT) * 0.45)));
+        const pending = d.plays.find(p => p.t > el);
+        const y = pending && el > lastT + (nextT - lastT) * 0.55 ? last + (nextY - last) * Math.min(1, (el - lastT - (nextT - lastT) * 0.55) / ((nextT - lastT) * 0.3)) : last;
+        let bx = X(d.team, Math.max(-3, Math.min(103, y))), by = 55 + Math.sin(el / 300 + di) * 6;
+        if (kick && now - kick.t < 700) { const k = (now - kick.t) / 700; bx = kick.from + ((d.team === a ? 246 : 14) - kick.from) * k; by = 55 - Math.sin(k * Math.PI) * 30; }
+        ballG.setAttribute('transform', `translate(${bx.toFixed(1)} ${by.toFixed(1)})`);
+        const showLines = el < d.t1 && d.result !== 'kneel';
+        const losX = X(d.team, Math.max(0, Math.min(100, last))), fdY = Math.min(100, last + 10);
+        los.setAttribute('x1', losX); los.setAttribute('x2', losX); los.setAttribute('opacity', showLines ? 0.9 : 0);
+        fd.setAttribute('x1', X(d.team, fdY)); fd.setAttribute('x2', X(d.team, fdY)); fd.setAttribute('opacity', showLines && fdY < 100 ? 0.9 : 0);
+        if (!d.ended && el >= d.t1 && !d.event) { d.ended = true; addPlay(`${teamName(d.team)} ${STOP_TEXT[d.result]}`, 'dim'); }
       }
-      ball.setAttribute('cx', ballX.toFixed(1));
-      if (el >= QMS * 4) return finish();
+      if (now > flashUntil) flash.setAttribute('opacity', 0);
+      winProb(el);
+      if (el >= total) return finish();
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);

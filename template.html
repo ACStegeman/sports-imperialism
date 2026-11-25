@@ -1,4 +1,5 @@
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>NFL Imperialism</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -84,12 +85,12 @@ select { width: 100%; }
 details summary { cursor: pointer; }
 .strengths { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 10px; max-height: 320px; overflow-y: auto; padding-right: 4px; }
 .strengths label { display: grid; grid-template-columns: 22px 1fr 64px; gap: 8px; align-items: center; font-size: 13px; }
-.overlay { position: fixed; inset: 0; background: rgba(6,14,11,.82); display: grid; place-items: center; z-index: 20; padding: 24px; }
+.overlay { position: fixed; inset: 0; overflow-y: auto; background: rgba(6,14,11,.82); display: grid; place-items: center; z-index: 20; padding: 24px; }
 .overlay .champ { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .overlay img { width: min(220px, 50vw); height: auto; background: var(--chalk); border-radius: 50%; padding: 24px; box-sizing: border-box; }
 .overlay h2 { font: 800 clamp(32px, 6vw, 64px)/1 var(--display); text-transform: uppercase; margin: 0; letter-spacing: .03em; }
 .overlay p { margin: 0; color: var(--chalk-dim); font-size: 16px; }
-.game { width: min(520px, 100%); background: var(--turf-2); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.game { width: min(580px, 100%); max-height: 100%; overflow-y: auto; background: var(--turf-2); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
 .board { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; background: #0a1411; border-radius: 12px; padding: 12px; }
 .bt { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 8px; border-radius: 8px; padding: 4px 6px; }
 .bt img { width: 40px; height: 40px; background: var(--chalk); border-radius: 50%; padding: 4px; box-sizing: border-box; }
@@ -135,6 +136,25 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .strengths label.wl { grid-template-columns: 22px 1fr 46px 8px 46px 34px; }
 .strengths .dash { color: var(--chalk-dim); text-align: center; }
 .strengths output { font-variant-numeric: tabular-nums; color: var(--gold); text-align: right; font-weight: 600; }
+.bt { position: relative; }
+.bt .poss { position: absolute; right: 44px; top: 50%; width: 9px; height: 6px; margin-top: -3px; border-radius: 50%; background: #8a4b20; box-shadow: 0 0 0 1.5px #eef2ea; opacity: 0; transition: opacity .2s; }
+.bt.has .poss { opacity: 1; }
+.wp { position: relative; display: flex; height: 16px; border-radius: 8px; overflow: hidden; background: var(--turf); }
+.wp-a { transition: width .4s ease; } .wp-b { flex: 1; }
+.wp-l { position: absolute; inset: 0; display: grid; place-items: center; font: 700 11px var(--body); letter-spacing: .06em; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.8); text-transform: uppercase; }
+.gfield .ynum { font: 700 9px var(--display); fill: rgba(255,255,255,.75); text-anchor: middle; }
+.gfield .ynum.flip { transform-box: fill-box; transform-origin: center; transform: rotate(180deg); }
+.gfield .ez { font: 800 10px var(--display); fill: rgba(255,255,255,.9); text-anchor: middle; letter-spacing: .15em; dominant-baseline: middle; }
+.gfield .flash { font: 800 26px var(--display); text-anchor: middle; stroke: #fff; stroke-width: 1.2px; paint-order: stroke; letter-spacing: .04em; }
+.gfield .flash.pop { animation: gpop .45s cubic-bezier(.2, 1.6, .4, 1) both; transform-box: fill-box; transform-origin: center; }
+@keyframes gpop { from { transform: scale(.3) } to { transform: scale(1) } }
+.plays li.dim { color: var(--chalk-dim); }
+.linescore table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.linescore th, .linescore td { padding: 4px 6px; text-align: center; border-bottom: 1px solid rgba(238,242,234,.12); }
+.linescore thead th { color: var(--chalk-dim); font-weight: 600; font-size: 11px; letter-spacing: .08em; }
+.linescore tbody th { text-align: left; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.linescore tbody th img { width: 20px; height: 20px; background: var(--chalk); border-radius: 50%; padding: 2px; box-sizing: border-box; }
+.linescore .tot { font-weight: 800; color: var(--gold); }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--chalk-dim); }
 @media (prefers-reduced-motion: reduce) { .region { transition: none; } .region.target { animation: none; } }
 </style>

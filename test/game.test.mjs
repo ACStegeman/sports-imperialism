@@ -133,7 +133,7 @@ test('simulateGame: winner always ends ahead, points are real football scores, q
     let total = { dal: 0, hou: 0 }, lastQ = 1;
     for (const e of g.events) {
       assert.ok([2, 3, 6, 7, 8].includes(e.pts));
-      assert.ok(e.q >= lastQ && e.q <= 4); lastQ = e.q;
+      assert.ok(e.q >= lastQ && e.q <= 5); lastQ = e.q;
       total[e.team] += e.pts;
     }
     assert.deepEqual(total, g.score);
@@ -219,4 +219,22 @@ test('encode/decode owners round trip', () => {
   const code = encodeOwners(o, ids, teams);
   assert.equal(typeof code, 'string'); assert.equal(code.length, 3);
   assert.deepEqual(decodeOwners(code, ids, teams), o);
+});
+
+test('simulateGame: all kinds of scores - low games, shootouts, and some overtime', () => {
+  let seed = 7;
+  const rng = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const totals = []; let ot = 0, bothOver20 = 0;
+  for (let i = 0; i < 400; i++) {
+    const g = simulateGame('dal', 'hou', rng);
+    totals.push(g.score.dal + g.score.hou);
+    if (g.events.some(e => e.q === 5)) ot++;
+    if (g.score.dal >= 20 && g.score.hou >= 20) bothOver20++;
+  }
+  const mean = totals.reduce((a, b) => a + b, 0) / totals.length;
+  assert.ok(mean >= 38 && mean <= 55, `mean total ${mean}`);
+  assert.ok(Math.max(...totals) >= 65, 'some shootouts');
+  assert.ok(Math.min(...totals) <= 20, 'some low-scoring games');
+  assert.ok(ot >= 4, `overtime games: ${ot}`);
+  assert.ok(bothOver20 >= 60, `games where both teams score 20+: ${bothOver20}`);
 });
