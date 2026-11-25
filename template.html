@@ -24,19 +24,22 @@
 html, body { height: 100%; }
 body { background: var(--turf); color: var(--chalk); font-family: var(--body); }
 .app {
-  display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px;
+  display: flex; flex-direction: column; gap: 14px;
   padding-block: 16px 24px;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   max-width: 1500px; margin: 0 auto;
 }
-@media (max-width: 960px) { .app { grid-template-columns: minmax(0, 1fr); } .field { position: static; } }
-header { grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+header { display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap; }
+header .tally { margin-left: auto; }
+.settings-btn { padding: 8px 14px; font-size: 15px; }
+.settings-btn[aria-expanded="true"] { background: var(--turf-3); }
 h1 { font-family: var(--display); font-weight: 800; font-size: clamp(28px, 4vw, 44px); letter-spacing: .02em; text-transform: uppercase; margin: 0; line-height: 1; }
 h1 span { color: var(--gold); }
 .tally { font-family: var(--display); font-size: 18px; color: var(--chalk-dim); letter-spacing: .06em; text-transform: uppercase; font-variant-numeric: tabular-nums; }
-.field { min-width: 0; align-self: start; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); background: var(--turf-2); border-radius: 14px; padding: 8px; position: relative; }
-#map { width: 100%; height: auto; display: block; touch-action: none; cursor: grab; }
+.field { min-width: 0; background: var(--turf-2); border-radius: 14px; padding: 8px; position: relative; }
+#map { width: 100%; height: auto; max-height: max(300px, calc(100vh - 330px)); display: block; touch-action: none; cursor: grab; }
 #map:active { cursor: grabbing; }
 .region { transition: fill .5s ease, stroke .5s ease; vector-effect: non-scaling-stroke; }
 .split-line { fill: none; stroke: var(--line); stroke-width: .6; stroke-dasharray: 3 2; pointer-events: none; }
@@ -47,13 +50,19 @@ h1 span { color: var(--gold); }
 @keyframes pulse { from { stroke-opacity: 1 } to { stroke-opacity: .25 } }
 .logo { pointer-events: none; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.6)); }
 .aim { stroke: var(--gold); stroke-width: 2; stroke-dasharray: 6 4; fill: none; pointer-events: none; }
-.side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; align-items: start; }
+.bar { background: var(--turf-2); border-radius: 14px; padding: 14px 16px; display: grid; grid-template-columns: 200px minmax(0, 1fr) minmax(240px, 300px); gap: 20px; align-items: center; }
+.bar-mid { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bar-side { display: flex; flex-direction: column; gap: 10px; }
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; align-items: start; }
+@media (max-width: 860px) { .bar { grid-template-columns: 140px minmax(0, 1fr); } .bar-side { grid-column: 1 / -1; } }
+@media (max-width: 520px) { .bar { grid-template-columns: minmax(0, 1fr); } .bar .wheel-wrap { max-width: 190px; } }
 .card { background: var(--turf-2); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .label { font-family: var(--display); font-weight: 600; font-size: 14px; letter-spacing: .12em; text-transform: uppercase; color: var(--chalk-dim); margin: 0; }
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--turf); border-radius: 10px; padding: 3px; gap: 3px; }
 .seg button { background: transparent; color: var(--chalk-dim); border: 0; border-radius: 8px; padding: 8px 4px; font: 600 13px var(--body); cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--turf-3); color: var(--chalk); box-shadow: inset 0 0 0 1px var(--line); }
-.wheel-wrap { position: relative; width: 100%; max-width: 300px; margin: 0 auto; aspect-ratio: 1; }
+.wheel-wrap { position: relative; width: 100%; max-width: 220px; margin: 0 auto; aspect-ratio: 1; }
 .wheel-wrap svg { width: 100%; height: 100%; display: block; }
 .pointer { position: absolute; left: 50%; top: -4px; transform: translateX(-50%); width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-top: 22px solid var(--gold); filter: drop-shadow(0 2px 2px rgba(0,0,0,.5)); z-index: 2; }
 .btn { appearance: none; border: 0; border-radius: 10px; padding: 12px 16px; font: 800 18px var(--display); letter-spacing: .08em; text-transform: uppercase; cursor: pointer; background: var(--gold); color: #1d1503; }
@@ -186,7 +195,39 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
   <header>
     <h1>NFL <span>Imperialism</span></h1>
     <div class="tally" id="tally"></div>
+    <button class="btn ghost settings-btn" id="settings-btn" aria-expanded="false" aria-controls="settings">Settings</button>
   </header>
+
+  <section class="settings" id="settings" hidden>
+    <div class="card">
+      <p class="label">Map</p>
+      <div class="seg mapseg" role="group" aria-label="Map">
+        <button data-map="usa">USA</button>
+        <button data-map="world">World</button>
+      </div>
+      <p class="hint" id="map-hint" hidden>Switching maps starts a new game. Click again to switch.</p>
+      <button class="btn ghost" id="reset">Reset map</button>
+    </div>
+    <div class="card">
+      <p class="label">Options</p>
+      <label class="toggle"><input type="checkbox" id="opt-powerups"><span><b>Power-ups</b>Gold tokens sit on open land. Claim the land to grab the power-up.</span></label>
+      <label class="toggle"><input type="checkbox" id="opt-sound"><span><b>Sound</b>Whistle, crowd and horn during games.</span></label>
+      <label class="toggle"><input type="checkbox" id="opt-capitals"><span><b>Capitals</b>A battle wins only the land fought over. Take a team's capital (the star) and you take everything.</span></label>
+      <label class="toggle"><input type="checkbox" id="opt-rebellions"><span><b>Rebellions</b>Each turn, a knocked-out team has a small chance to rise up and retake its home.</span></label>
+    </div>
+    <div class="card">
+      <p class="label">Hand land to a team</p>
+      <select id="assign" aria-label="Team that gets the land you click"></select>
+      <p class="hint">Pick a team, then click any state or country on the map to give it to them.</p>
+    </div>
+    <div class="card">
+      <details>
+        <summary class="label">Team strength (weighted mode)</summary>
+        <label class="toggle" style="margin-top:10px"><input type="checkbox" id="opt-records"><span><b>Set from real records</b>Type each team's wins and losses. Strength = 1 + 9 × win %.</span></label>
+        <div class="strengths" id="strengths"></div>
+      </details>
+    </div>
+  </section>
 
   <div class="field" id="field">
     <svg id="map" viewBox="0 0 975 610" role="img" aria-label="Map of the United States colored by NFL team territory"></svg>
@@ -199,20 +240,18 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
     <div class="upset" id="upset" hidden></div>
   </div>
 
-  <aside class="side">
-    <section class="card">
-      <p class="label">Battle mode</p>
+  <section class="bar" id="turn">
+    <div class="wheel-wrap"><div class="pointer"></div><svg id="wheel" viewBox="0 0 300 300"></svg></div>
+    <div class="bar-mid">
+      <p class="status" id="status"></p>
+      <div id="matchup"></div>
+    </div>
+    <div class="bar-side">
       <div class="seg" role="group" aria-label="Battle mode">
         <button id="mode-pick" data-mode="pick">Pick winner</button>
         <button id="mode-fifty" data-mode="fifty">50 / 50</button>
         <button id="mode-weighted" data-mode="weighted">Weighted</button>
       </div>
-    </section>
-
-    <section class="card" id="turn">
-      <div class="wheel-wrap"><div class="pointer"></div><svg id="wheel" viewBox="0 0 300 300"></svg></div>
-      <p class="status" id="status"></p>
-      <div id="matchup"></div>
       <div class="row" id="actions"></div>
       <div class="auto">
         <button class="btn ghost" id="auto-btn">Auto-play</button>
@@ -221,70 +260,37 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
         </label>
       </div>
       <p class="hint" id="auto-hint" hidden>Auto-play works in 50 / 50 and Weighted mode.</p>
-    </section>
+    </div>
+  </section>
 
-    <section class="card">
-      <p class="label">Options</p>
-      <div class="seg mapseg" role="group" aria-label="Map">
-        <button data-map="usa">USA</button>
-        <button data-map="world">World</button>
-      </div>
-      <p class="hint" id="map-hint" hidden>Switching maps starts a new game. Click again to switch.</p>
-      <label class="toggle"><input type="checkbox" id="opt-powerups"><span><b>Power-ups</b>Gold tokens sit on open land. Claim the land to grab the power-up.</span></label>
-      <label class="toggle"><input type="checkbox" id="opt-sound"><span><b>Sound</b>Whistle, crowd and horn during games.</span></label>
-      <label class="toggle"><input type="checkbox" id="opt-capitals"><span><b>Capitals</b>A battle wins only the state fought over. Take a team's capital (the star) and you take everything.</span></label>
-      <label class="toggle"><input type="checkbox" id="opt-rebellions"><span><b>Rebellions</b>Each turn, a knocked-out team has a small chance to rise up and retake its home state.</span></label>
-    </section>
-
-    <section class="card">
-      <p class="label">Hand land to a team</p>
-      <select id="assign" aria-label="Team that gets the state you click"></select>
-      <p class="hint">Pick a team, then click any state on the map to give it to them.</p>
-    </section>
-
-    <section class="card" id="powers-card">
+  <section class="panels">
+    <div class="card">
+      <p class="label">Biggest empires</p>
+      <ol class="standings" id="standings"></ol>
+    </div>
+    <div class="card">
+      <p class="label">Play-by-play</p>
+      <ul class="log" id="log"></ul>
+    </div>
+    <div class="card">
+      <p class="label">Record book</p>
+      <ul class="records" id="records"></ul>
+    </div>
+    <div class="card" id="powers-card">
       <p class="label">Power-ups held</p>
       <ul class="powers" id="powers"></ul>
       <details>
         <summary class="label">What each power-up does</summary>
         <ul class="legend" id="power-legend"></ul>
       </details>
-    </section>
-
-    <section class="card">
-      <p class="label">Biggest empires</p>
-      <ol class="standings" id="standings"></ol>
-    </section>
-
-    <section class="card">
-      <p class="label">Play-by-play</p>
-      <ul class="log" id="log"></ul>
-    </section>
-
-    <section class="card">
-      <p class="label">Record book</p>
-      <ul class="records" id="records"></ul>
-    </section>
-
-    <section class="card">
+    </div>
+    <div class="card">
       <p class="label">Replay</p>
       <input type="range" id="replay-slider" min="0" max="0" value="0" aria-label="Replay position">
       <div class="replay-row"><button class="btn ghost" id="replay-play">Play</button><span class="hint" id="replay-label"></span></div>
       <button class="btn" id="replay-exit" hidden>Back to game</button>
-    </section>
-
-    <section class="card">
-      <details>
-        <summary class="label">Team strength (weighted mode)</summary>
-        <label class="toggle" style="margin-top:10px"><input type="checkbox" id="opt-records"><span><b>Set from real records</b>Type each team's wins and losses. Strength = 1 + 9 × win %.</span></label>
-        <div class="strengths" id="strengths"></div>
-      </details>
-    </section>
-
-    <section class="card">
-      <button class="btn ghost" id="reset">Reset map</button>
-    </section>
-  </aside>
+    </div>
+  </section>
 </div>
 <div class="overlay" id="overlay" hidden></div>
 

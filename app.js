@@ -872,9 +872,11 @@ function setView(v) {
   $('map').setAttribute('viewBox', `${x.toFixed(1)} ${y.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}`);
   const z = $('zoom-fit'); if (z) z.disabled = w >= BASE.w - 0.5;
 }
+// Screen pixels -> map coordinates. The map keeps its shape, so it may sit centered with empty bands at the sides.
+function fitScale() { const r = $('map').getBoundingClientRect(); const k = Math.min(r.width / VIEW.w, r.height / VIEW.h); return { r, k, ox: (r.width - VIEW.w * k) / 2, oy: (r.height - VIEW.h * k) / 2 }; }
 function toMap(clientX, clientY) {
-  const r = $('map').getBoundingClientRect();
-  return [VIEW.x + (clientX - r.left) / r.width * VIEW.w, VIEW.y + (clientY - r.top) / r.height * VIEW.h];
+  const { r, k, ox, oy } = fitScale();
+  return [VIEW.x + (clientX - r.left - ox) / k, VIEW.y + (clientY - r.top - oy) / k];
 }
 function zoomAt(factor, cx, cy) {
   const w = VIEW.w / factor, h = VIEW.h / factor;
@@ -916,8 +918,8 @@ function wireZoom() {
       if (!dragged && Math.hypot(dx, dy) < 5) return;
       if (start.view.w >= BASE.w - 0.5) return; // nothing to pan at full view
       dragged = true; svg.setPointerCapture(e.pointerId);
-      const r = svg.getBoundingClientRect();
-      setView({ ...start.view, x: start.view.x - dx / r.width * start.view.w, y: start.view.y - dy / r.height * start.view.h });
+      const { k } = fitScale();
+      setView({ ...start.view, x: start.view.x - dx / k, y: start.view.y - dy / k });
     }
   });
   const end = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) { start = null; setTimeout(() => { dragged = false; }, 0); } };
@@ -980,6 +982,7 @@ function drawPowers() {
 
 // ---------- options ----------
 function wireOptions() {
+  $('settings-btn').onclick = () => { const p = $('settings'), open = p.hidden; p.hidden = !open; $('settings-btn').setAttribute('aria-expanded', String(open)); };
   for (const k of ['sound', 'capitals', 'rebellions', 'powerups']) {
     const box = $(`opt-${k}`);
     box.checked = opt(k);
@@ -1161,7 +1164,7 @@ function recordLines() {
     `<li><span>Biggest upset</span><b>${r.upset ? `${nm(r.upset.team)} over the ${teamName(r.upset.vs)} (${r.upset.pct}%)` : '—'}</b></li>`,
     `<li><span>Most wins</span><b>${r.mostWins ? `${nm(r.mostWins.team)}, ${r.mostWins.n} ${r.mostWins.n === 1 ? 'win' : 'wins'}` : '—'}</b></li>`,
     `<li><span>Longest win streak</span><b>${r.streak ? `${nm(r.streak.team)}, ${r.streak.n} ${r.streak.n === 1 ? 'win' : 'wins'}` : '—'}</b></li>`,
-    `<li><span>Most states taken in one win</span><b>${r.bigTake ? `${nm(r.bigTake.team)}, ${r.bigTake.n} ${UNIT(r.bigTake.n)} from the ${teamName(r.bigTake.from)}` : '—'}</b></li>`,
+    `<li><span>Most ${UNIT(2)} taken in one win</span><b>${r.bigTake ? `${nm(r.bigTake.team)}, ${r.bigTake.n} ${UNIT(r.bigTake.n)} from the ${teamName(r.bigTake.from)}` : '—'}</b></li>`,
     `<li><span>Fastest knockout</span><b>${r.fastestOut ? `${nm(r.fastestOut.team)} on turn ${r.fastestOut.turn} (by the ${teamName(r.fastestOut.by)})` : '—'}</b></li>`,
   ];
 }
