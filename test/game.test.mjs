@@ -257,3 +257,9 @@ test('landAngles: only directions where the arrow reaches land it can take', () 
   assert.ok(angles.every(a => a < 90 || a > 270), `angles: ${angles}`); // all point east-ish, none west into the water
   assert.ok(angles.includes(0));
 });
+test('record book: most wins counts every battle win, streak or not', () => {
+  let r = {};
+  for (const [w, l] of [['cin', 'cle'], ['cin', 'pit'], ['bal', 'cin'], ['cin', 'bal'], ['kc', 'den'], ['cin', 'kc']]) r = recordBattle(r, { winner: w, loser: l, winnerOdds: 0.5, turn: 1 });
+  assert.deepEqual(r.mostWins, { team: 'cin', n: 4 });
+  assert.equal(r.wins.bal, 1);
+});

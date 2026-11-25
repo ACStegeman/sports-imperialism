@@ -236,7 +236,9 @@ export function pickRebellion(owners, allTeams, capitals, rng = Math.random, cha
 
 // Record book.
 export function recordBattle(records, { winner, loser, winnerOdds, turn }) {
-  const r = { ...records, current: { ...(records.current || {}) } };
+  const r = { ...records, current: { ...(records.current || {}) }, wins: { ...(records.wins || {}) } };
+  r.wins[winner] = (r.wins[winner] || 0) + 1;
+  if (!r.mostWins || r.wins[winner] > r.mostWins.n) r.mostWins = { team: winner, n: r.wins[winner] };
   r.current[winner] = (r.current[winner] || 0) + 1;
   r.current[loser] = 0;
   if (!r.streak || r.current[winner] > r.streak.n) r.streak = { team: winner, n: r.current[winner] };

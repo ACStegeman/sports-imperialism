@@ -946,6 +946,7 @@ function recordLines() {
   const r = state.records || {}, nm = a => TEAM_BY_ABBR[a].name;
   return [
     `<li><span>Biggest upset</span><b>${r.upset ? `${nm(r.upset.team)} over the ${teamName(r.upset.vs)} (${r.upset.pct}%)` : '—'}</b></li>`,
+    `<li><span>Most wins</span><b>${r.mostWins ? `${nm(r.mostWins.team)}, ${r.mostWins.n} ${r.mostWins.n === 1 ? 'win' : 'wins'}` : '—'}</b></li>`,
     `<li><span>Longest win streak</span><b>${r.streak ? `${nm(r.streak.team)}, ${r.streak.n} ${r.streak.n === 1 ? 'win' : 'wins'}` : '—'}</b></li>`,
     `<li><span>Most states taken in one win</span><b>${r.bigTake ? `${nm(r.bigTake.team)}, ${r.bigTake.n} ${r.bigTake.n === 1 ? 'state' : 'states'} from the ${teamName(r.bigTake.from)}` : '—'}</b></li>`,
     `<li><span>Fastest knockout</span><b>${r.fastestOut ? `${nm(r.fastestOut.team)} on turn ${r.fastestOut.turn} (by the ${teamName(r.fastestOut.by)})` : '—'}</b></li>`,
