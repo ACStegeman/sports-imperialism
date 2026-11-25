@@ -83,3 +83,49 @@ export function stateCounts(owners, stateOf) {
   }
   return Object.fromEntries(Object.entries(seen).map(([t, s]) => [t, s.size]));
 }
+
+const touchesTeam = (team, id, owners, adjacency) =>
+  adjacency.some(([a, b]) => (a === id && owners[b] === team) || (b === id && owners[a] === team));
+
+// Follow the arrow's line from (ox, oy). labelAt(x, y) -> region id, or null for water / off the map.
+// The first land not owned by the team is the target. Crossing open water is only allowed to land the
+// team already borders by land (Packers -> Lions). Nothing reached -> null, meaning respin.
+export function rayTarget(team, [ox, oy], angleDeg, labelAt, owners, adjacency, { maxDist = 1500, minGap = 4, step = 1 } = {}) {
+  const dx = Math.cos(angleDeg * Math.PI / 180), dy = Math.sin(angleDeg * Math.PI / 180);
+  let gap = 0, crossedWater = false;
+  for (let t = 0; t <= maxDist; t += step) {
+    const id = labelAt(ox + dx * t, oy + dy * t);
+    if (!id) { gap += step; if (gap >= minGap) crossedWater = true; continue; }
+    gap = 0;
+    if (owners[id] === team) { crossedWater = false; continue; }
+    if (!crossedWater) return id;
+    return touchesTeam(team, id, owners, adjacency) ? id : null;
+  }
+  return null;
+}
+
+// Empty pockets of land bordered by exactly one team go to that team. Returns { regionId: team }.
+export function enclosedClaims(owners, adjacency) {
+  const nb = {};
+  for (const [a, b] of adjacency) { (nb[a] ||= []).push(b); (nb[b] ||= []).push(a); }
+  const seen = new Set(), out = {};
+  for (const id in owners) {
+    if (owners[id] || seen.has(id)) continue;
+    const pocket = [], stack = [id], around = new Set();
+    seen.add(id);
+    while (stack.length) {
+      const x = stack.pop(); pocket.push(x);
+      for (const y of nb[x] || []) {
+        if (!(y in owners)) continue;
+        if (owners[y]) around.add(owners[y]);
+        else if (!seen.has(y)) { seen.add(y); stack.push(y); }
+      }
+    }
+    if (around.size === 1) { const t = [...around][0]; for (const p of pocket) out[p] = t; }
+  }
+  return out;
+}
+
+export const boostWinner = (strengths, winner) => ({ ...strengths, [winner]: Math.min(10, (strengths[winner] || 1) + 1) });
+
+export const fillAll = (owners, team) => Object.fromEntries(Object.keys(owners).map(id => [id, team]));

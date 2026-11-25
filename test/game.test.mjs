@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
 import { TEAMS } from '../teams.js';
 
 const regions = [
@@ -87,4 +87,43 @@ test('pickTarget counts neighbors of any region the team owns', () => {
   const c = { A: [0, 0], B: [10, 0], C: [20, 0] };
   const o = { A: 'x', B: 'x', C: null };
   assert.equal(pickTarget('x', 0, c, o, [['A', 'B'], ['B', 'C']]), 'C');
+});
+
+// A tiny grid map for the arrow tests. Each character is a 1x1 cell; '.' is water.
+function gridMap(rows, legend) {
+  return (x, y) => { const r = rows[Math.floor(y)]; const ch = r && r[Math.floor(x)]; return ch && ch !== '.' ? legend[ch] : null; };
+}
+test('rayTarget hits the first land the arrow line reaches, even if other neighbors are closer in angle', () => {
+  // D = Broncos (CO). K = Kansas east, I = Iowa north-east. Arrow points east -> Kansas.
+  const map = gridMap(['DDDDIIII', 'DDDDIIII', 'DDDDKKKK', 'DDDDKKKK'], { D: 'CO', K: 'KS', I: 'IA' });
+  const o = { CO: 'den', KS: null, IA: null };
+  const adj = [['CO', 'KS'], ['CO', 'IA']];
+  assert.equal(rayTarget('den', [1.5, 2.5], 0, map, o, adj, { minGap: 2 }), 'KS');
+});
+test('rayTarget respins (null) when the arrow goes out to open water', () => {
+  const map = gridMap(['SS......', 'SS......'], { S: 'CA' });
+  assert.equal(rayTarget('sf', [0.5, 0.5], 0, map, { CA: 'sf' }, [], { minGap: 2, maxDist: 20 }), null);
+});
+test('rayTarget crosses water only to a land neighbor (Packers to Lions yes, Bears to Lions no)', () => {
+  const map = gridMap(['WW...MM', 'II...MM'], { W: 'WI', M: 'MI', I: 'IL' });
+  const o = { WI: 'gb', MI: 'det', IL: 'chi' };
+  const adj = [['WI', 'MI'], ['WI', 'IL']];
+  assert.equal(rayTarget('gb', [0.5, 0.5], 0, map, o, adj, { minGap: 2 }), 'MI');
+  assert.equal(rayTarget('chi', [0.5, 1.5], 0, map, o, adj, { minGap: 2 }), null);
+});
+test('rayTarget passes through the team\'s own land', () => {
+  const map = gridMap(['AABBC'], { A: 'a', B: 'b', C: 'c' });
+  assert.equal(rayTarget('x', [0.5, 0.5], 0, map, { a: 'x', b: 'x', c: null }, [['a', 'b'], ['b', 'c']], { minGap: 2 }), 'c');
+});
+test('enclosedClaims gives empty pockets to the one team that surrounds them, not pockets touching others', () => {
+  const o = { UT: null, NV: null, CA: 'sf', OR: 'sf', ID: 'sf', AZ: 'sf', WY: 'sf', OH: null, KY: 'sf', PA: 'cin' };
+  const adj = [['UT', 'NV'], ['NV', 'CA'], ['NV', 'OR'], ['NV', 'ID'], ['NV', 'AZ'], ['UT', 'ID'], ['UT', 'AZ'], ['UT', 'WY'], ['OH', 'KY'], ['OH', 'PA']];
+  assert.deepEqual(enclosedClaims(o, adj), { UT: 'sf', NV: 'sf' });
+});
+test('boostWinner adds 1 strength, capped at 10', () => {
+  assert.deepEqual(boostWinner({ sf: 7, lv: 3 }, 'sf'), { sf: 8, lv: 3 });
+  assert.deepEqual(boostWinner({ sf: 10 }, 'sf'), { sf: 10 });
+});
+test('fillAll paints every region for the champion', () => {
+  assert.deepEqual(fillAll({ a: 'phi', b: null, c: null }, 'phi'), { a: 'phi', b: 'phi', c: 'phi' });
 });

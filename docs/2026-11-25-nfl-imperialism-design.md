@@ -18,10 +18,12 @@ A personal "NFL imperialism" game: a US map with state lines where every NFL tea
 
 ## Turn flow
 1. Spin wheel → picks a team still alive.
-2. Spin arrow from that team's territory → only land that shares a land border with the team's territory can be hit (closest to the arrow direction, within 45°). Pointing at water or no neighbor → respin. (Packers↔Lions share the Upper Peninsula border; Bears↔Lions do not.)
+2. Spin arrow from the team's logo (middle of its biggest territory). The target is the first land the arrow's line reaches outside the team's own land. Crossing water only reaches land the team already borders by land (Packers→Lions yes, Bears→Lions no). Open water / nothing → respin.
 3. Blank target → team takes it, no battle. Owned target → battle.
 4. Battle modes (switchable): Pick winner (buttons), 50/50, Weighted (strength 1–10 per team, editable, odds = a/(a+b)).
-5. Winner takes all of loser's territory; loser leaves the wheel. Last team standing → champion screen.
+5. Winner takes all of loser's territory; loser leaves the wheel; winner's strength +1 (max 10). Claiming empty land gives no strength.
+6. Empty pockets bordered by only one team go to that team automatically (pockets touching any other team stay empty).
+7. Last team standing → whole map fills with the champion; a banner offers Reset map (no popup).
 
 ## Other
 - Manual mode: pick team from dropdown, click any region to assign it.

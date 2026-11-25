@@ -11,6 +11,7 @@ const teamName = a => TEAM_BY_ABBR[a].name.split(' ').slice(-1)[0];
 const regionName = r => r.clip ? `${r.state === 'DC' ? 'DC' : CODE_TO_NAME[r.state]} (${teamName(r.team)} part)` : CODE_TO_NAME[r.state];
 
 let REGIONS = [], BY_ID = {}, CENT = {}, STATE_OF = {};
+const LABEL = new Int16Array(W * H);
 let state = null; // { owners, strengths, mode, log, turn }
 let turn = { step: 'wheel' }; // wheel | arrow | battle | done
 let wheelRot = 0, arrowRot = 0, busy = false;
@@ -154,6 +155,26 @@ function drawMap({ regions, path, topo, segments }) {
 }
 
 
+function territorySpot(t) {
+  const key = [...t.ids].sort().join(',');
+  let spot = ANCHOR_CACHE.get(key);
+  if (!spot) {
+    const rs = t.ids.map(id => BY_ID[id]);
+    const area = rs.reduce((n, r) => n + r.area, 0);
+    const at = rs.length === 1 ? rs[0].at : anchor(rs.flatMap(r => r.pts), rs[0].at);
+    spot = { at, area };
+    ANCHOR_CACHE.set(key, spot);
+  }
+  return spot;
+}
+// Where a team's logo sits: the middle of its biggest territory. The arrow spins from here.
+function teamSpot(team) {
+  let best = null;
+  for (const t of territories(state.owners, ADJ)) if (t.team === team) { const sp = territorySpot(t); if (!best || sp.area > best.area) best = sp; }
+  return best ? best.at : teamCentroid(team, CENT, state.owners);
+}
+const labelAt = (x, y) => { x = Math.round(x); y = Math.round(y); if (x < 0 || y < 0 || x >= W || y >= H) return null; const i = LABEL[y * W + x]; return i >= 0 ? REGIONS[i].id : null; };
+
 function paint() {
   const { owners } = state;
   for (const p of gRegions.children) {
@@ -167,17 +188,9 @@ function paint() {
   gBorders.setAttribute('d', bd);
   gLogos.innerHTML = '';
   for (const t of territories(owners, ADJ)) {
-    const key = [...t.ids].sort().join(',');
-    let spot = ANCHOR_CACHE.get(key);
-    if (!spot) {
-      const rs = t.ids.map(id => BY_ID[id]);
-      const area = rs.reduce((n, r) => n + r.area, 0);
-      const at = rs.length === 1 ? rs[0].at : anchor(rs.flatMap(r => r.pts), rs[0].at);
-      spot = { at, area };
-      ANCHOR_CACHE.set(key, spot);
-    }
+    const spot = territorySpot(t);
     if (spot.area < 120) continue;
-    const s = Math.max(14, Math.min(64, Math.sqrt(spot.area) * 0.42)), color = TEAM_BY_ABBR[t.team].color;
+    const s = Math.max(14, Math.min(110, Math.sqrt(spot.area) * 0.42)), color = TEAM_BY_ABBR[t.team].color;
     el('circle', { cx: spot.at[0], cy: spot.at[1], r: s * 0.5, fill: '#eef2ea', 'fill-opacity': 0.92, stroke: color, 'stroke-width': 1.5, class: 'logo' }, gLogos);
     const li = s * 0.78;
     el('image', { href: logoUrl(t.team), x: spot.at[0] - li / 2, y: spot.at[1] - li / 2, width: li, height: li, class: 'logo' }, gLogos);
@@ -187,7 +200,7 @@ function paint() {
   drawLog();
   const alive = aliveTeams(owners).length;
   const blanks = Object.values(owners).filter(v => !v).length;
-  $('tally').textContent = `${alive} teams left · ${blanks} open states · turn ${state.turn}`;
+  $('tally').textContent = `${alive} ${alive === 1 ? 'team' : 'teams'} left · ${blanks} open ${blanks === 1 ? 'state' : 'states'} · turn ${state.turn}`;
 }
 
 // ---------- wheel ----------
@@ -201,11 +214,13 @@ function drawWheel() {
     const a0 = i * s, a1 = (i + 1) * s, [x0, y0] = pt(a0, R), [x1, y1] = pt(a1, R);
     const d = n === 1 ? `M${cx - R},${cy}a${R},${R} 0 1,0 ${2 * R},0a${R},${R} 0 1,0 ${-2 * R},0` : `M${cx},${cy}L${x0},${y0}A${R},${R} 0 ${s > 180 ? 1 : 0},1 ${x1},${y1}Z`;
     el('path', { d, fill: t.color, stroke: '#10201b', 'stroke-width': 1 }, g);
-    const sz = Math.max(14, Math.min(48, (2 * Math.PI * R * 0.72 / n) * 0.8));
+    const sz = n === 1 ? 110 : Math.max(14, Math.min(48, (2 * Math.PI * R * 0.72 / n) * 0.8));
     const [lx, ly] = n === 1 ? [cx, cy] : pt(a0 + s / 2, R * 0.74);
-    el('image', { href: logoUrl(t.abbr), x: lx - sz / 2, y: ly - sz / 2, width: sz, height: sz, transform: `rotate(${-wheelRot} ${lx} ${ly})`, 'data-up': '1' }, g);
+    el('circle', { cx: lx, cy: ly, r: sz * 0.55, fill: '#eef2ea' }, g);
+    const li = sz * 0.82;
+    el('image', { href: logoUrl(t.abbr), x: lx - li / 2, y: ly - li / 2, width: li, height: li, transform: `rotate(${-wheelRot} ${lx} ${ly})` }, g);
   });
-  el('circle', { cx, cy, r: 16, fill: '#10201b', stroke: '#eef2ea', 'stroke-width': 2 }, svg);
+  if (n > 1) el('circle', { cx, cy, r: 16, fill: '#10201b', stroke: '#eef2ea', 'stroke-width': 2 }, svg);
 }
 function setWheel(rot) {
   wheelRot = rot;
@@ -240,7 +255,7 @@ async function spinWheel() {
 function drawArrow(team, rot) {
   gArrow.innerHTML = '';
   if (!team) return;
-  const [cx, cy] = teamCentroid(team, CENT, state.owners);
+  const [cx, cy] = teamSpot(team);
   const g = el('g', { transform: `translate(${cx} ${cy}) rotate(${rot})` }, gArrow);
   el('circle', { r: 9, fill: TEAM_BY_ABBR[team].color, stroke: '#fff', 'stroke-width': 2.5 }, g);
   el('path', { d: 'M8,-5 L62,-5 L62,-14 L88,0 L62,14 L62,5 L8,5 Z', fill: '#f0b429', stroke: '#1d1503', 'stroke-width': 2, 'stroke-linejoin': 'round' }, g);
@@ -251,7 +266,7 @@ async function spinArrow() {
   const target = arrowRot + 720 + mod(final - arrowRot, 360);
   await animate(arrowRot, target, 2600, r => drawArrow(a, r));
   arrowRot = mod(target, 360);
-  const tid = pickTarget(a, arrowRot, CENT, state.owners, ADJ);
+  const tid = rayTarget(a, teamSpot(a), arrowRot, labelAt, state.owners, ADJ);
   if (!tid) {
     // pointed at water or nobody it borders: respin
     turn = { step: 'arrow', attacker: a, missed: true };
@@ -263,7 +278,7 @@ async function spinArrow() {
   if (!defender) {
     state.owners = claim(state.owners, a, tid);
     addLog(`<b>${teamName(a)}</b> claim open land in ${regionName(BY_ID[tid])}`);
-    turn = { step: 'done', attacker: a, msg: `The <b>${TEAM_BY_ABBR[a].name}</b> march into ${regionName(BY_ID[tid])}. Nobody was home.` };
+    turn = { step: 'done', attacker: a, msg: `The <b>${TEAM_BY_ABBR[a].name}</b> march into ${regionName(BY_ID[tid])}. Nobody was home.` + afterMove() };
     nextTurnCount(); save();
   } else {
     turn = { step: 'battle', attacker: a, defender, region: tid };
@@ -274,8 +289,10 @@ function showAim(team, tid) {
   gAim.innerHTML = '';
   for (const p of gRegions.children) p.classList.toggle('target', p.dataset.id === tid);
   if (!team || !tid) return;
-  const [x0, y0] = teamCentroid(team, CENT, state.owners), [x1, y1] = CENT[tid];
-  el('line', { x1: x0, y1: y0, x2: x1, y2: y1, class: 'aim' }, gAim);
+  const [x0, y0] = teamSpot(team), dx = Math.cos(arrowRot * Math.PI / 180), dy = Math.sin(arrowRot * Math.PI / 180);
+  let t = 0;
+  while (t < 1500 && labelAt(x0 + dx * t, y0 + dy * t) !== tid) t++;
+  el('line', { x1: x0, y1: y0, x2: x0 + dx * (t + 6), y2: y0 + dy * (t + 6), class: 'aim' }, gAim);
 }
 function clearAim() { showAim(null, null); drawArrow(null); }
 
@@ -304,8 +321,12 @@ function finishBattle(winner) {
   const names = [...new Set(Object.keys(state.owners).filter(id => state.owners[id] === loser).map(id => STATE_OF[id] === 'DC' ? 'MD' : STATE_OF[id]))].map(c => CODE_TO_NAME[c]);
   const where = names.length <= 3 ? listJoin(names) : `${names.length} states`;
   state.owners = conquer(state.owners, winner, loser);
-  addLog(`<b>${teamName(winner)}</b> beat the ${teamName(loser)} and take their land in ${where}`);
-  turn = { step: 'done', attacker: a, defender: b, winner, msg: `The <b>${TEAM_BY_ABBR[winner].name}</b> win and take over the ${teamName(loser)}' land in ${where}. The ${teamName(loser)} are out.` };
+  const before = state.strengths[winner];
+  state.strengths = boostWinner(state.strengths, winner);
+  const grew = state.strengths[winner] > before ? ` Strength ${before} → ${state.strengths[winner]}.` : '';
+  addLog(`<b>${teamName(winner)}</b> beat the ${teamName(loser)} and take their land in ${where}.${grew}`);
+  turn = { step: 'done', attacker: a, defender: b, winner, msg: `The <b>${TEAM_BY_ABBR[winner].name}</b> win and take over the ${teamName(loser)}' land in ${where}. The ${teamName(loser)} are out.${grew}` + afterMove() };
+  syncStrengthInputs();
   nextTurnCount(); save(); paint(); render();
 }
 
@@ -319,7 +340,13 @@ function render() {
   for (const b of document.querySelectorAll('.seg button')) b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode));
   mu.innerHTML = ''; ac.innerHTML = '';
   const btn = (label, fn, cls = '') => { const b = document.createElement('button'); b.className = `btn ${cls}`; b.textContent = label; b.disabled = busy; b.onclick = fn; ac.appendChild(b); return b; };
-  if (turn.step === 'wheel') {
+  const champ = champion(state.owners);
+  if (champ) {
+    const t = TEAM_BY_ABBR[champ];
+    st.innerHTML = `<b>The ${t.name} rule America!</b> Last team standing after ${state.turn} turns.`;
+    mu.innerHTML = `<div class="matchup" style="grid-template-columns:1fr">${teamCard(champ, null, 'win')}</div>`;
+    btn('Reset map', doReset);
+  } else if (turn.step === 'wheel') {
     st.innerHTML = busy ? 'Spinning…' : 'Spin the wheel to pick who attacks.';
     btn('Spin the wheel', spinWheel);
   } else if (turn.step === 'arrow') {
@@ -342,13 +369,21 @@ function render() {
     if (turn.winner) mu.innerHTML = `<div class="matchup">${teamCard(turn.attacker, null, turn.winner === turn.attacker ? 'win' : '')}<span class="vs">VS</span>${teamCard(turn.defender, null, turn.winner === turn.defender ? 'win' : '')}</div>`;
     btn('Next turn', () => { turn = { step: 'wheel' }; clearAim(); render(); });
   }
-  const champ = champion(state.owners);
-  $('overlay').hidden = !champ;
-  if (champ) {
-    const t = TEAM_BY_ABBR[champ];
-    $('overlay').innerHTML = `<div class="champ"><img src="${logoUrl(champ)}" alt=""><h2>The ${t.name} rule America</h2><p>Last team standing after ${state.turn} turns.</p><button class="btn" id="again">Play again</button></div>`;
-    $('again').onclick = doReset;
+  $('overlay').hidden = true;
+}
+// After every claim or battle: empty pockets a single team surrounds become theirs; the last team standing gets everything.
+function afterMove() {
+  let msg = '';
+  const enclosed = enclosedClaims(state.owners, ADJ);
+  const byTeam = {};
+  for (const [id, t] of Object.entries(enclosed)) { state.owners = claim(state.owners, t, id); (byTeam[t] ||= []).push(regionName(BY_ID[id])); }
+  for (const [t, names] of Object.entries(byTeam)) {
+    addLog(`<b>${teamName(t)}</b> surround and take ${listJoin(names)}`);
+    msg += ` The ${teamName(t)} surround ${listJoin(names)} and take ${names.length === 1 ? 'it' : 'them'} too.`;
   }
+  const champ = champion(state.owners);
+  if (champ) state.owners = fillAll(state.owners, champ);
+  return msg;
 }
 const listJoin = a => a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`;
 function nextTurnCount() { state.turn++; }
@@ -369,6 +404,7 @@ function drawStrengths() {
     e.target.value = v; state.strengths[t.abbr] = v; save(); render();
   });
 }
+function syncStrengthInputs() { for (const t of TEAMS) { const i = $(`str-${t.abbr}`); if (i) i.value = state.strengths[t.abbr]; } }
 function drawAssign() {
   const s = $('assign');
   s.innerHTML = `<option value="">Off</option>` + TEAMS.map(t => `<option value="${t.abbr}">${t.name}</option>`).join('') + `<option value="__blank">Nobody (make it blank)</option>`;
@@ -414,6 +450,9 @@ async function boot() {
   BY_ID = Object.fromEntries(REGIONS.map(r => [r.id, r]));
   STATE_OF = Object.fromEntries(REGIONS.map(r => [r.id, r.state]));
   CENT = Object.fromEntries(REGIONS.map(r => [r.id, r.at]));
+  LABEL.fill(-1);
+  REGIONS.forEach((r, i) => { for (const [x, y] of r.pts) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) { const gx = x + dx, gy = y + dy; if (gx < W && gy < H) LABEL[gy * W + gx] = i; } });
+  await Promise.all(TEAMS.map(t => new Promise(res => { const im = new Image(); im.onload = im.onerror = res; im.src = logoUrl(t.abbr); })));
   drawMap(built);
   state = load();
   $('loading').hidden = true;
