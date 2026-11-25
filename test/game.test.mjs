@@ -238,3 +238,12 @@ test('simulateGame: all kinds of scores - low games, shootouts, and some overtim
   assert.ok(ot >= 4, `overtime games: ${ot}`);
   assert.ok(bothOver20 >= 60, `games where both teams score 20+: ${bothOver20}`);
 });
+test('simulateGame: combined score never goes over 100', () => {
+  let seed = 11;
+  const rng = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < 5000; i++) {
+    const g = simulateGame('dal', 'hou', rng);
+    assert.ok(g.score.dal + g.score.hou <= 100, `game ${i}: ${g.score.dal}-${g.score.hou}`);
+    assert.ok(g.score.dal > g.score.hou);
+  }
+});

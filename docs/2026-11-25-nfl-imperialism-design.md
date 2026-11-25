@@ -48,5 +48,5 @@ Arrow targeting rule, winner-takes-all + elimination, starting strength values, 
 - Record book: biggest upset, longest win streak, most states at once, fastest knockout. Shown in the sidebar and on the champion banner.
 - Auto-play (50/50 and Weighted): plays turns by itself at 1x-8x; stops at a champion.
 - Real records (option in Team strength): type W-L; strength = 1 + 9 x win %.
-- Game sim scoring: each game gets a pace (defensive ~22%, normal ~53%, shootout ~25%); ties after Q4 go to overtime. Average about 52 combined points; range roughly 10 to 120.
+- Game sim scoring: each game gets a pace (defensive ~22%, normal ~53%, shootout ~25%); ties after Q4 go to overtime. Average about 52 combined points; combined score never over 100 (a game that would go over is replayed).
 - Game screen: TV-style field (yard numbers, hashes, goal posts, end-zone names), drives play by play with a blue line of scrimmage and yellow first-down line, possession marker, win-probability bar, TOUCHDOWN!/IT'S GOOD!/SAFETY! flashes with field goals arcing through the posts, non-scoring drives (punts, interceptions, fumbles, turnovers on downs), winner kneels out the clock, and a quarter-by-quarter box score at the final.

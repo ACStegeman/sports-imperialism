@@ -144,7 +144,14 @@ export const fillAll = (owners, team) => Object.fromEntries(Object.keys(owners).
 // A made-up game whose final score agrees with an already-decided winner.
 // Each game gets a pace: a defensive battle, a normal game, or a shootout. Ties after four quarters go to overtime (q 5).
 // Returns { events: [{ q, clock, team, pts, kind, yards }], score: { [team]: points }, pace }.
+// Combined points never go over 100: a game that would is played again.
 export function simulateGame(winner, loser, rng = Math.random) {
+  for (;;) {
+    const g = simulateOnce(winner, loser, rng);
+    if (g.score[winner] + g.score[loser] <= 100) return g;
+  }
+}
+function simulateOnce(winner, loser, rng) {
   const pick = arr => arr[Math.floor(rng() * arr.length)];
   const score = { [winner]: 0, [loser]: 0 }, events = [];
   const r0 = rng();
