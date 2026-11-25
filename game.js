@@ -126,6 +126,37 @@ export function enclosedClaims(owners, adjacency) {
   return out;
 }
 
-export const boostWinner = (strengths, winner) => ({ ...strengths, [winner]: Math.min(10, (strengths[winner] || 1) + 1) });
+// A win adds a tenth of the loser's strength: beating a 9 is worth +0.9, beating a 3 is worth +0.3. Max 10.
+const round1 = x => Math.round(x * 10) / 10;
+export const boostWinner = (strengths, winner, loser) =>
+  ({ ...strengths, [winner]: Math.min(10, round1((strengths[winner] || 1) + (strengths[loser] || 1) / 10)) });
 
 export const fillAll = (owners, team) => Object.fromEntries(Object.keys(owners).map(id => [id, team]));
+
+// A made-up game whose final score agrees with an already-decided winner.
+// Returns { events: [{ q, clock, team, pts, kind, yards }], score: { [team]: points } }.
+export function simulateGame(winner, loser, rng = Math.random) {
+  const pick = arr => arr[Math.floor(rng() * arr.length)];
+  const score = { [winner]: 0, [loser]: 0 }, events = [];
+  const play = (q, team, clock) => {
+    const r = rng();
+    let pts, kind, yards;
+    if (r < 0.52) { pts = 7; kind = pick(['pass', 'run']); yards = kind === 'pass' ? 3 + Math.floor(rng() * 60) : 1 + Math.floor(rng() * 30); }
+    else if (r < 0.88) { pts = 3; kind = 'fg'; yards = 22 + Math.floor(rng() * 33); }
+    else if (r < 0.94) { pts = 6; kind = 'missed-xp'; yards = 2 + Math.floor(rng() * 40); }
+    else if (r < 0.98) { pts = 8; kind = 'two-point'; yards = 2 + Math.floor(rng() * 40); }
+    else { pts = 2; kind = 'safety'; yards = 0; }
+    score[team] += pts;
+    events.push({ q, clock, team, pts, kind, yards });
+  };
+  for (let q = 1; q <= 4; q++) {
+    const n = Math.floor(rng() * 3); // 0-2 scores a quarter
+    const clocks = Array.from({ length: n }, () => 1 + Math.floor(rng() * 14 * 60)).sort((a, b) => b - a);
+    for (const c of clocks) play(q, rng() < 0.55 ? winner : loser, c);
+  }
+  // late drives until the winner is ahead
+  let clock = 120;
+  while (score[winner] <= score[loser]) { play(4, winner, clock); clock = Math.max(1, clock - 40); }
+  events.sort((a, b) => a.q - b.q || b.clock - a.clock);
+  return { events, score };
+}

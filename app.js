@@ -305,16 +305,87 @@ async function fight() {
   busy = true; render();
   const { attacker: a, defender: b } = turn;
   const winner = resolveBattle(a, b, state.mode, state.strengths);
-  const sides = [...document.querySelectorAll('.side-team')];
-  if (!reduced) {
-    let delay = 60, i = 0;
-    while (delay < 340) {
-      sides.forEach((s, j) => s.classList.toggle('lit', j === i % 2));
-      await new Promise(r => setTimeout(r, delay)); delay *= 1.18; i++;
-    }
-  }
+  const loser = winner === a ? b : a;
+  await playGame(a, b, simulateGame(winner, loser));
   busy = false;
   finishBattle(winner);
+}
+
+// ---------- simulated game popup ----------
+const fmtClock = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+function playText(e) {
+  const n = teamName(e.team);
+  if (e.kind === 'pass') return `${n} ${e.yards}-yard touchdown pass`;
+  if (e.kind === 'run') return `${n} ${e.yards}-yard touchdown run`;
+  if (e.kind === 'fg') return `${n} ${e.yards}-yard field goal is good`;
+  if (e.kind === 'missed-xp') return `${n} touchdown, extra point no good`;
+  if (e.kind === 'two-point') return `${n} touchdown and the two-point try is good`;
+  return `Safety! ${n} get 2`;
+}
+function playGame(a, b, game) {
+  return new Promise(resolve => {
+    const ov = $('overlay'), A = TEAM_BY_ABBR[a], B = TEAM_BY_ABBR[b];
+    ov.innerHTML = `<div class="game" role="dialog" aria-label="${A.name} vs ${B.name}">
+      <div class="board">
+        <div class="bt"><img src="${logoUrl(a)}" alt=""><span>${teamName(a)}</span><b id="sc-a">0</b></div>
+        <div class="clock"><span id="g-q">1st</span><span id="g-clock">15:00</span></div>
+        <div class="bt"><img src="${logoUrl(b)}" alt=""><span>${teamName(b)}</span><b id="sc-b">0</b></div>
+      </div>
+      <svg class="gfield" viewBox="0 0 240 70" aria-hidden="true">
+        <rect x="0" y="0" width="240" height="70" fill="#2f6b3a"/>
+        <rect x="0" y="0" width="20" height="70" fill="${A.color}"/><rect x="220" y="0" width="20" height="70" fill="${B.color}"/>
+        ${Array.from({ length: 9 }, (_, k) => `<line x1="${40 + k * 20}" y1="0" x2="${40 + k * 20}" y2="70" stroke="rgba(255,255,255,.45)" stroke-width="${k === 4 ? 1.4 : .7}"/>`).join('')}
+        <line x1="20" y1="0" x2="20" y2="70" stroke="#fff" stroke-width="1.2"/><line x1="220" y1="0" x2="220" y2="70" stroke="#fff" stroke-width="1.2"/>
+        <image href="${logoUrl(a)}" x="108" y="23" width="24" height="24" opacity=".35"/>
+        <ellipse id="g-ball" cx="120" cy="35" rx="5" ry="3.2" fill="#8a4b20" stroke="#fff" stroke-width=".8"/>
+      </svg>
+      <ul class="plays" id="g-plays"><li>Kickoff!</li></ul>
+      <div class="row"><button class="btn ghost" id="g-skip">Skip to final</button></div>
+    </div>`;
+    ov.hidden = false;
+    const scA = $('sc-a'), scB = $('sc-b'), qEl = $('g-q'), clockEl = $('g-clock'), plays = $('g-plays'), ball = $('g-ball');
+    const QMS = reduced ? 0 : 1900; // real milliseconds per quarter
+    const names = ['1st', '2nd', '3rd', '4th'];
+    const score = { [a]: 0, [b]: 0 };
+    let idx = 0, done = false, raf = 0, t0 = performance.now(), ballX = 120, holdUntil = 0, held = false;
+    const addPlay = html => { const li = document.createElement('li'); li.innerHTML = html; plays.prepend(li); while (plays.children.length > 4) plays.lastChild.remove(); };
+    const finish = () => {
+      if (done) return; done = true; cancelAnimationFrame(raf);
+      for (; idx < game.events.length; idx++) { const e = game.events[idx]; score[e.team] += e.pts; }
+      scA.textContent = score[a]; scB.textContent = score[b];
+      qEl.textContent = 'FINAL'; clockEl.textContent = '0:00';
+      const w = score[a] > score[b] ? a : b;
+      addPlay(`<b>Final: ${TEAM_BY_ABBR[w].name} win ${Math.max(score[a], score[b])}–${Math.min(score[a], score[b])}</b>`);
+      ov.querySelectorAll('.bt')[w === a ? 0 : 1].classList.add('won');
+      const btn = $('g-skip'); btn.textContent = 'Continue'; btn.className = 'btn'; btn.onclick = () => { ov.hidden = true; ov.innerHTML = ''; resolve(); };
+      btn.focus();
+    };
+    $('g-skip').onclick = finish;
+    if (!QMS) return finish();
+    const tick = now => {
+      const el = now - t0, q = Math.min(4, Math.floor(el / QMS) + 1), gameClock = Math.max(0, Math.round(900 - ((el % QMS) / QMS) * 900));
+      qEl.textContent = names[q - 1]; clockEl.textContent = fmtClock(el >= QMS * 4 ? 0 : gameClock);
+      while (idx < game.events.length) {
+        const e = game.events[idx], at = (e.q - 1) * QMS + (1 - e.clock / 900) * QMS;
+        if (el < at) break;
+        score[e.team] += e.pts; scA.textContent = score[a]; scB.textContent = score[b];
+        addPlay(`<span class="q">Q${e.q} ${fmtClock(e.clock)}</span> ${playText(e)}`);
+        ballX = e.team === a ? 230 : 10; holdUntil = el + 450; held = true; idx++;
+      }
+      // ball drifts toward the end zone of whoever scores next; after a score it sits in the end zone briefly, then resets
+      if (el < holdUntil) { /* hold */ }
+      else if (held) { held = false; ballX = 120; }
+      else {
+        const next = game.events[idx];
+        const goal = next ? (next.team === a ? 210 : 30) : 120;
+        ballX = Math.max(25, Math.min(215, ballX + (goal - ballX) * 0.02 + (Math.random() - 0.5) * 1.5));
+      }
+      ball.setAttribute('cx', ballX.toFixed(1));
+      if (el >= QMS * 4) return finish();
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  });
 }
 function finishBattle(winner) {
   const { attacker: a, defender: b } = turn, loser = winner === a ? b : a;
@@ -322,8 +393,8 @@ function finishBattle(winner) {
   const where = names.length <= 3 ? listJoin(names) : `${names.length} states`;
   state.owners = conquer(state.owners, winner, loser);
   const before = state.strengths[winner];
-  state.strengths = boostWinner(state.strengths, winner);
-  const grew = state.strengths[winner] > before ? ` Strength ${before} → ${state.strengths[winner]}.` : '';
+  state.strengths = boostWinner(state.strengths, winner, loser);
+  const grew = state.strengths[winner] > before ? ` Strength ${before} → ${state.strengths[winner]} (beat a ${state.strengths[loser]}).` : '';
   addLog(`<b>${teamName(winner)}</b> beat the ${teamName(loser)} and take their land in ${where}.${grew}`);
   turn = { step: 'done', attacker: a, defender: b, winner, msg: `The <b>${TEAM_BY_ABBR[winner].name}</b> win and take over the ${teamName(loser)}' land in ${where}. The ${teamName(loser)} are out.${grew}` + afterMove() };
   syncStrengthInputs();
@@ -398,9 +469,9 @@ function addLog(html, label = `Turn ${state.turn + 1}`) { state.log.unshift(`${l
 function drawLog() { $('log').innerHTML = state.log.length ? state.log.map(l => `<li>${l}</li>`).join('') : '<li>No moves yet.</li>'; }
 
 function drawStrengths() {
-  $('strengths').innerHTML = TEAMS.map(t => `<label><img src="${logoUrl(t.abbr)}" alt=""><span>${t.name}</span><input type="number" min="1" max="10" step="1" id="str-${t.abbr}" value="${state.strengths[t.abbr]}"></label>`).join('');
+  $('strengths').innerHTML = TEAMS.map(t => `<label><img src="${logoUrl(t.abbr)}" alt=""><span>${t.name}</span><input type="number" min="1" max="10" step="0.1" id="str-${t.abbr}" value="${state.strengths[t.abbr]}"></label>`).join('');
   for (const t of TEAMS) $(`str-${t.abbr}`).addEventListener('change', e => {
-    const v = Math.max(1, Math.min(10, Math.round(+e.target.value) || 1));
+    const v = Math.max(1, Math.min(10, Math.round((+e.target.value || 1) * 10) / 10));
     e.target.value = v; state.strengths[t.abbr] = v; save(); render();
   });
 }

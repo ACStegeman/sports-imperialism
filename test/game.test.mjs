@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
+import { simulateGame, rayTarget, enclosedClaims, boostWinner, fillAll, stateCounts, territories, showBorder, initialOwners, aliveTeams, conquer, claim, resolveBattle, pickTarget, champion, teamCentroid } from '../game.js';
 import { TEAMS } from '../teams.js';
 
 const regions = [
@@ -120,10 +120,27 @@ test('enclosedClaims gives empty pockets to the one team that surrounds them, no
   const adj = [['UT', 'NV'], ['NV', 'CA'], ['NV', 'OR'], ['NV', 'ID'], ['NV', 'AZ'], ['UT', 'ID'], ['UT', 'AZ'], ['UT', 'WY'], ['OH', 'KY'], ['OH', 'PA']];
   assert.deepEqual(enclosedClaims(o, adj), { UT: 'sf', NV: 'sf' });
 });
-test('boostWinner adds 1 strength, capped at 10', () => {
-  assert.deepEqual(boostWinner({ sf: 7, lv: 3 }, 'sf'), { sf: 8, lv: 3 });
-  assert.deepEqual(boostWinner({ sf: 10 }, 'sf'), { sf: 10 });
+test('boostWinner adds a tenth of the loser strength, capped at 10', () => {
+  assert.deepEqual(boostWinner({ dal: 5, hou: 6 }, 'dal', 'hou'), { dal: 5.6, hou: 6 });
+  assert.deepEqual(boostWinner({ dal: 5, ten: 2 }, 'dal', 'ten'), { dal: 5.2, ten: 2 });
+  assert.deepEqual(boostWinner({ kc: 9.7, buf: 9 }, 'kc', 'buf'), { kc: 10, buf: 9 });
 });
 test('fillAll paints every region for the champion', () => {
   assert.deepEqual(fillAll({ a: 'phi', b: null, c: null }, 'phi'), { a: 'phi', b: 'phi', c: 'phi' });
+});
+
+test('simulateGame: winner always ends ahead, points are real football scores, quarters in order', () => {
+  let seed = 1;
+  const rng = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < 300; i++) {
+    const g = simulateGame('dal', 'hou', rng);
+    assert.ok(g.score.dal > g.score.hou, `game ${i}: ${g.score.dal}-${g.score.hou}`);
+    let total = { dal: 0, hou: 0 }, lastQ = 1;
+    for (const e of g.events) {
+      assert.ok([2, 3, 6, 7, 8].includes(e.pts));
+      assert.ok(e.q >= lastQ && e.q <= 4); lastQ = e.q;
+      total[e.team] += e.pts;
+    }
+    assert.deepEqual(total, g.score);
+  }
 });
