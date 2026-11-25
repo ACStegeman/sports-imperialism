@@ -18,7 +18,7 @@ A personal "NFL imperialism" game: a US map with state lines where every NFL tea
 
 ## Turn flow
 1. Spin wheel → picks a team still alive.
-2. Spin arrow from the team's logo (middle of its biggest territory). The target is the first land the arrow's line reaches outside the team's own land. Crossing water only reaches land the team already borders by land (Packers→Lions yes, Bears→Lions no). Open water / nothing → respin.
+2. Spin arrow from the team's logo (middle of its biggest territory). The target is the first land the arrow's line reaches outside the team's own land. Crossing water only reaches land the team already borders by land (Packers→Lions yes, Bears→Lions no). Open water / nothing → automatic respin.
 3. Blank target → team takes it, no battle. Owned target → battle.
 4. In 50/50 and Weighted, Fight! plays an ~8-second simulated game (scoreboard, clock, field, plays; skippable) whose score matches the already-decided winner. Battle modes (switchable): Pick winner (buttons), 50/50, Weighted (strength 1–10 per team, editable, odds = a/(a+b)).
 5. Winner takes all of loser's territory; loser leaves the wheel; winner's strength grows by a tenth of the loser's strength (max 10, one decimal). Claiming empty land gives no strength.
